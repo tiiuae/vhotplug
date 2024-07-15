@@ -173,3 +173,16 @@ class QEMULink:
             logger.error(f"Failed to remove evdev device: {e}")
         finally:
             await qmp.disconnect()
+
+    async def wait_for_vm(self):
+        while True:
+            try:
+                status = await self.query_status()
+                if status == "running":
+                    logger.info("The VM is running")
+                    break
+                else:
+                    logger.info(f"VM status: {status}")
+            except Exception as e:
+                logger.error(f"Failed to query VM status: {e}")
+            await asyncio.sleep(1)

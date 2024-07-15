@@ -15,7 +15,7 @@ It dynamically adds USB devices to a QEMU virtual machine via the QEMU Machine P
 Run the application with the path to the QMP socket:
 
 ```
-sudo python3 ./main.py /var/run/qmp.sock
+sudo python3 ./main.py --add-connected --qmp-socket /var/run/qmp.sock
 ```
 
 # License
