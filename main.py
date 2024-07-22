@@ -12,28 +12,36 @@ logger = logging.getLogger("vhotplug")
 async def device_event(qmpsock, device):
     if device.action == 'add':
         logger.info(f"Device plugged. Subsystem: {device.subsystem}. Path: {device.device_path}. Name: {device.sys_name}.")
+        log_device(device)
         if device.subsystem == "input" and device.sys_name.startswith("event"):
             if device.properties.get("ID_INPUT") == "1":
-                await add_device(qmpsock, device)
+                await add_usb_device(qmpsock, device)
     elif device.action == 'remove':
         logger.info(f"Device unplugged. Subsystem: {device.subsystem}. Path: {device.device_path}. Name: {device.sys_name}.")
+        log_device(device)
         if device.subsystem == "usb" and device.device_type == "usb_device":
             await remove_device(qmpsock, device)
 
 async def main():
-    logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
-    logger.addHandler(handler)
-
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
     parser.add_argument("--qmp-socket", type=str, required=True, dest="qmpsock", help="Path to the QMP socket")
     parser.add_argument("--add-connected", default=False, action=argparse.BooleanOptionalAction, help="Add already connected devices on startup")
+    parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages")
     args = parser.parse_args()
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger.addHandler(handler)
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
     logger.info(f"Connecting to {args.qmpsock}")
     qemu = QEMULink(args.qmpsock)
     await qemu.wait_for_vm()
+
+    await qemu.query_pci()
 
     context = pyudev.Context()
     if args.add_connected:

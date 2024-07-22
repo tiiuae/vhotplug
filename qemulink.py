@@ -64,11 +64,12 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("query-pci")
-            logger.info("PCI:")
+            logger.info("Attached PCI Devices:")
             for x in res:
-                logger.info(x['bus'])
                 for dev in x['devices']:
-                    logger.info(dev)
+                    class_info = dev['class_info']
+                    logger.info(f"  Description: {class_info.get('desc')}. Class: {class_info.get('class')}. Bus: {dev['bus']}. Slot {dev['slot']}. QEMU ID: {dev['qdev_id']}.")
+                    logger.debug(dev)
         except Exception as e:
             logger.error(f"Failed to query PCI: {e}")
         finally:
@@ -131,7 +132,7 @@ class QEMULink:
             qemuid = device.sys_name
             if idindex > 0:
                 qemuid += f"-{idindex}"
-            logger.info(f"Adding evdev device {device.device_node} with id {qemuid}")
+            logger.info(f"Adding evdev device {device.device_node} with id {qemuid} to bus {bus}")
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
