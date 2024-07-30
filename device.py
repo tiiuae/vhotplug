@@ -49,44 +49,62 @@ async def remove_device(qmpsock, device):
     qemu = QEMULink(qmpsock)
     await qemu.remove_usb_device(device)
 
-async def is_input_device(device):
-    if device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
+def is_input_device(device):
+    if device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
         return device.properties.get("ID_INPUT_MOUSE") == "1" or \
             (device.properties.get("ID_INPUT_KEYBOARD") == "1") or \
             (device.properties.get("ID_INPUT_TOUCHPAD") == "1")
     return False
 
-async def get_dev_name(device):
-    with open(device.device_node, 'rb') as dev:
-        name = bytearray(256)
-        fcntl.ioctl(dev, EVIOCGNAME, name) #EVIOCGNAME
-        return name.split(b'\x00', 1)[0].decode('utf-8')
+def is_sound_device(device):
+    return device.subsystem == "sound" and device.device_type != "pcm" and device.sys_name.startswith("card")
+
+def get_evdev_name(device):
+    if device.device_node:
+        with open(device.device_node, 'rb') as dev:
+            name = bytearray(256)
+            fcntl.ioctl(dev, EVIOCGNAME, name) #EVIOCGNAME
+            return name.split(b'\x00', 1)[0].decode('utf-8')
+    else:
+        return None
 
 async def test_grab(device):
     with open(device.device_node, 'wb') as dev:
         try:
             fcntl.ioctl(dev, EVIOCGRAB, struct.pack('i', 1))
         except OSError as e:
-            logger.info(e)
+            logger.debug(e)
             return True
     return False
 
-async def add_connected_devices(qmpsock, context):
+async def add_connected_devices(qmpinput, qmpsound, context, addevdev, busprefix):
     pcieport = 1
     for device in context.list_devices(subsystem='input'):
         log_device(device)
-        if await is_input_device(device):
-            name = await get_dev_name(device)
+        if is_input_device(device):
+            name = get_evdev_name(device)
             bus = device.properties.get("ID_BUS")
             logger.info(f"Found input device: {name}. Bus: {bus}.")
             logger.info(f"Subsystem: {device.subsystem}. Path: {device.device_path}. Name: {device.sys_name}.")
             if bus == "usb":
-                await add_usb_device(qmpsock, device)
+                await add_usb_device(qmpinput, device)
             else:
-                if await test_grab(device):
-                    logger.info("The device is grabbed by another process; it is likely already connected to the VM.")
+                if addevdev:
+                    if await test_grab(device):
+                        logger.info("The device is grabbed by another process; it is likely already connected to the VM.")
+                    else:
+                        #log_device(device, logging.INFO)
+                        qemu = QEMULink(qmpinput)
+                        await qemu.add_evdev_device(device, f"{busprefix}{pcieport}")
+                        pcieport += 1
                 else:
-                    #log_device(device, logging.INFO)
-                    qemu = QEMULink(qmpsock)
-                    await qemu.add_evdev_device(device, f"rp{pcieport}")
-                    pcieport += 1
+                    logger.info("Skipping non-USB input device.")
+    for device in context.list_devices(subsystem='sound'):
+        log_device(device)
+        if qmpsound and is_sound_device(device):
+            bus = device.properties.get("ID_BUS")
+            logger.info(f"Found sound device: {device.sys_name}. Bus: {bus}. Path: {device.device_path}.")
+            if bus == "usb":
+                await add_usb_device(qmpsound, device)
+            else:
+                logger.warn("Bus {bus} is not supported for sound devices")

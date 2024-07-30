@@ -29,8 +29,9 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("human-monitor-command", {"command-line": "info usb"})
-            logger.info(f"USB Guest Devices:")
-            logger.info(res)
+            logger.info(f"Guest USB Devices:")
+            for line in res.splitlines():
+                logger.info(f"{line}")
         except Exception as e:
             logger.error(f"Failed to get a list of USB guest devices: {e}")
         finally:
@@ -41,8 +42,9 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("human-monitor-command", {"command-line": "info usbhost"})
-            logger.info(f"USB Host Devices:")
-            logger.info(res)
+            logger.info(f"Host USB Devices:")
+            for line in res.splitlines():
+                logger.info(f"{line}")
         except Exception as e:
             logger.error(f"Failed to get a list of USB host devices: {e}")
         finally:
@@ -64,11 +66,11 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("query-pci")
-            logger.info("Attached PCI Devices:")
+            logger.info("Guest PCI Devices:")
             for x in res:
                 for dev in x['devices']:
                     class_info = dev['class_info']
-                    logger.info(f"  Description: {class_info.get('desc')}. Class: {class_info.get('class')}. Bus: {dev['bus']}. Slot {dev['slot']}. QEMU ID: {dev['qdev_id']}.")
+                    logger.info(f"  Description: {class_info.get('desc')}. Class: {class_info.get('class')}. Bus: {dev['bus']}. Slot {dev['slot']}.")
                     logger.debug(dev)
         except Exception as e:
             logger.error(f"Failed to query PCI: {e}")
