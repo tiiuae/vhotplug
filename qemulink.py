@@ -86,7 +86,7 @@ class QEMULink:
                 busnum = int(device.properties["BUSNUM"])
                 devnum = int(device.properties["DEVNUM"])
                 qemuid = f"usb{busnum}{devnum}"
-                logger.info(f"Adding USB device with id {qemuid}")
+                logger.info(f"Adding USB device with id {qemuid} to {self.socket_path}")
                 res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": busnum, "hostaddr": devnum, "id": qemuid})
                 if res:
                     logger.error(f"Failed to add device: {res}")
@@ -121,9 +121,9 @@ class QEMULink:
             if res:
                 logger.error(f"Failed to remove USB device: {res}")
             else:
-                logger.info(f"Removed USB device. BUSNUM: {busnum}, DEVNUM: {devnum}.")
+                logger.info(f"Removed USB device from {self.socket_path}. BUSNUM: {busnum}, DEVNUM: {devnum}.")
         except Exception as e:
-            logger.error(f"Failed to remove USB device: {e}")
+            logger.error(f"Failed to remove USB device from {self.socket_path}: {e}")
         finally:
             await qmp.disconnect()
 

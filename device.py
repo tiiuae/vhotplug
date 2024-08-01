@@ -2,6 +2,7 @@ import logging
 from qemulink import *
 import fcntl
 import struct
+import psutil
 
 EVIOCGRAB = 0x40044590
 EVIOCGNAME = 0x82004506
@@ -46,8 +47,9 @@ async def add_usb_device(qmpsock, device):
         logger.error(f"Failed to find parent USB device")
 
 async def remove_device(qmpsock, device):
-    qemu = QEMULink(qmpsock)
-    await qemu.remove_usb_device(device)
+    if qmpsock:
+        qemu = QEMULink(qmpsock)
+        await qemu.remove_usb_device(device)
 
 def is_input_device(device):
     if device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
@@ -58,6 +60,9 @@ def is_input_device(device):
 
 def is_sound_device(device):
     return device.subsystem == "sound" and device.device_type != "pcm" and device.sys_name.startswith("card")
+
+def is_disk_device(device):
+    return device.subsystem == "block" and device.device_type == "disk"
 
 def get_evdev_name(device):
     if device.device_node:
@@ -77,7 +82,22 @@ async def test_grab(device):
             return True
     return False
 
-async def add_connected_devices(qmpinput, qmpsound, context, addevdev, busprefix):
+def is_root_device(context, device):
+    # Find device partitions
+    for udevpart in context.list_devices(subsystem='block', DEVTYPE='partition'):
+        parent = udevpart.find_parent('block')
+        if parent and parent.device_node == device.device_node:
+            logger.info(f"Disk {device.device_node} has partition {udevpart.device_node}")
+            # Find mountpoints
+            partitions = psutil.disk_partitions(all=True)
+            for part in partitions:
+                if part.device == udevpart.device_node:
+                    logger.info(f"Found mountpoint {part.mountpoint}. Filesystem: {part.fstype}. Options: {part.opts}.")
+                    if part.mountpoint == "/boot":
+                        return True
+    return False
+
+async def add_connected_devices(qmpinput, qmpsound, qmpdisk, context, addevdev, busprefix):
     pcieport = 1
     for device in context.list_devices(subsystem='input'):
         log_device(device)
@@ -108,3 +128,13 @@ async def add_connected_devices(qmpinput, qmpsound, context, addevdev, busprefix
                 await add_usb_device(qmpsound, device)
             else:
                 logger.warn("Bus {bus} is not supported for sound devices")
+    for device in context.list_devices(subsystem='block'):
+        log_device(device)
+        if qmpdisk and is_disk_device(device):
+            bus = device.properties.get("ID_BUS")
+            if bus == "usb":
+                logger.info(f"Found USB disk device: {device.sys_name}. Bus: {bus}. Node: {device.device_node}.")
+                if is_root_device(context, device):
+                    logger.info(f"USB drive {device.device_node} is used as a root device, skipping.")
+                else:
+                    await add_usb_device(qmpdisk, device)

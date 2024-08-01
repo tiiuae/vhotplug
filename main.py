@@ -9,7 +9,7 @@ from device import *
 
 logger = logging.getLogger("vhotplug")
 
-async def device_event(qmpinput, qmpsound, device):
+async def device_event(qmpinput, qmpsound, qmpdisk, device):
     if device.action == 'add':
         logger.info(f"Device plugged. Subsystem: {device.subsystem}. Path: {device.device_path}. Name: {device.sys_name}.")
         log_device(device)
@@ -17,12 +17,15 @@ async def device_event(qmpinput, qmpsound, device):
             await add_usb_device(qmpinput, device)
         elif qmpsound and is_sound_device(device):
             await add_usb_device(qmpsound, device)
+        elif qmpdisk and is_disk_device(device):
+            await add_usb_device(qmpdisk, device)
     elif device.action == 'remove':
         logger.info(f"Device unplugged. Subsystem: {device.subsystem}. Path: {device.device_path}. Name: {device.sys_name}.")
         log_device(device)
         if device.subsystem == "usb" and device.device_type == "usb_device":
             await remove_device(qmpinput, device)
             await remove_device(qmpsound, device)
+            await remove_device(qmpdisk, device)
 
 async def main():
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
@@ -31,6 +34,7 @@ async def main():
     parser.add_argument("--pcie-bus-prefix", type=str, required=False, dest="busprefix", help="PCIe bus prefix for evdev passthrough")
     parser.add_argument("--qmp-input", type=str, required=True, dest="qmpinput", help="Path to the QMP socket of a VM for input devices")
     parser.add_argument("--qmp-sound", type=str, required=False, dest="qmpsound", help="Path to the QMP socket of a VM for sound devices")
+    parser.add_argument("--qmp-disk", type=str, required=False, dest="qmpdisk", help="Path to the QMP socket of a VM for disk devices")
     parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages")
     args = parser.parse_args()
 
@@ -57,7 +61,7 @@ async def main():
     context = pyudev.Context()
     if args.add_connected:
         logger.info("Adding connected devices")
-        await add_connected_devices(args.qmpinput, args.qmpsound, context, args.add_evdev, args.busprefix)
+        await add_connected_devices(args.qmpinput, args.qmpsound, args.qmpdisk, context, args.add_evdev, args.busprefix)
 
     monitor = pyudev.Monitor.from_netlink(context)
 
@@ -66,7 +70,7 @@ async def main():
         while True:
             device = monitor.poll(timeout=1)
             if device != None:
-                await device_event(args.qmpinput, args.qmpsound, device)
+                await device_event(args.qmpinput, args.qmpsound, args.qmpdisk, device)
     except KeyboardInterrupt:
         logger.info("Ctrl+C")
 
