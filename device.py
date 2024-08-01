@@ -66,6 +66,11 @@ def is_sound_device(device):
 def is_disk_device(device):
     return device.subsystem == "block" and device.device_type == "disk"
 
+def is_network_device(device):
+    driver = device.properties.get("ID_NET_DRIVER")
+    return device.subsystem == "net" and device.device_type != "bridge" and \
+        driver != "tun" and driver != "bridge" and device.sys_name != "lo"
+
 def get_evdev_name(device):
     if device.device_node:
         with open(device.device_node, 'rb') as dev:
@@ -99,11 +104,11 @@ def is_root_device(context, device):
                         return True
     return False
 
-async def add_connected_devices(qmpinput, qmpsound, qmpdisk, context, addevdev, busprefix):
+async def add_connected_devices(context, qmpinput, qmpsound, qmpdisk, qmpnet, addevdev, busprefix):
     pcieport = 1
     for device in context.list_devices(subsystem='input'):
         log_device(device)
-        if is_input_device(device):
+        if qmpinput and is_input_device(device):
             name = get_evdev_name(device)
             bus = device.properties.get("ID_BUS")
             logger.info(f"Found input device: {name}. Bus: {bus}.")
@@ -115,7 +120,6 @@ async def add_connected_devices(qmpinput, qmpsound, qmpdisk, context, addevdev, 
                     if await test_grab(device):
                         logger.info("The device is grabbed by another process; it is likely already connected to the VM.")
                     else:
-                        #log_device(device, logging.INFO)
                         qemu = QEMULink(qmpinput)
                         await qemu.add_evdev_device(device, f"{busprefix}{pcieport}")
                         pcieport += 1
@@ -129,7 +133,7 @@ async def add_connected_devices(qmpinput, qmpsound, qmpdisk, context, addevdev, 
             if bus == "usb":
                 await add_usb_device(qmpsound, device)
             else:
-                logger.warn("Bus {bus} is not supported for sound devices")
+                logger.warn(f"Bus {bus} is not supported for sound devices")
     for device in context.list_devices(subsystem='block'):
         log_device(device)
         if qmpdisk and is_disk_device(device):
@@ -140,3 +144,12 @@ async def add_connected_devices(qmpinput, qmpsound, qmpdisk, context, addevdev, 
                     logger.info(f"USB drive {device.device_node} is used as a root device, skipping.")
                 else:
                     await add_usb_device(qmpdisk, device)
+    for device in context.list_devices(subsystem='net'):
+        log_device(device)
+        if qmpnet and is_network_device(device):
+            bus = device.properties.get("ID_BUS")
+            logger.info(f"Found network device: {device.sys_name}. Bus: {bus}. Path: {device.device_path}.")
+            if bus == "usb":
+                await add_usb_device(qmpnet, device)
+            else:
+                logger.warn("fBus {bus} is not supported for network devices")

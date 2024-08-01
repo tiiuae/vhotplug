@@ -123,7 +123,10 @@ class QEMULink:
             else:
                 logger.info(f"Removed USB device from {self.socket_path}. BUSNUM: {busnum}, DEVNUM: {devnum}.")
         except Exception as e:
-            logger.error(f"Failed to remove USB device from {self.socket_path}: {e}")
+            if str(e) == f"Device '{qemuid}' not found":
+                logger.debug(f"Failed to remove USB device from {self.socket_path}: {e}")
+            else:
+                logger.error(f"Failed to remove USB device from {self.socket_path}: {e}")
         finally:
             await qmp.disconnect()
 
