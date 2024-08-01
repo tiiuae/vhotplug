@@ -55,7 +55,9 @@ def is_input_device(device):
     if device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
         return device.properties.get("ID_INPUT_MOUSE") == "1" or \
             (device.properties.get("ID_INPUT_KEYBOARD") == "1") or \
-            (device.properties.get("ID_INPUT_TOUCHPAD") == "1")
+            (device.properties.get("ID_INPUT_TOUCHPAD") == "1") or \
+            (device.properties.get("ID_INPUT_TOUCHSCREEN") == "1") or \
+            (device.properties.get("ID_INPUT_TABLET") == "1")
     return False
 
 def is_sound_device(device):
