@@ -1,0 +1,26 @@
+{
+    "vms": [
+        {
+            "name": "vm1",
+            "qmpSocket": "/tmp/qmp-socket1",
+            "usbPassthrough": [
+                {
+                    "class": 3,
+                    "protocol": 2,
+                    "description": "HID Mouse",
+                    "ignore": [
+                        {
+                            "vid": "046d",
+                            "pid": "c52b",
+                            "description": "Logitech, Inc. Unifying Receiver"
+                        }
+                    ]
+                }
+            ],
+            "evdevPassthrough": {
+                "enable": false,
+                "pcieBusPrefix": "ep"
+            }
+        }
+    ]
+}

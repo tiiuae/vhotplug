@@ -4,6 +4,9 @@ setup(
     name="vhotplug",
     version="1.0",
     packages=find_packages(),
-    py_modules=['main', 'qemulink', 'device'],
-    scripts=["main.py"],
+    entry_points={
+        "console_scripts": [
+            "vhotplug=vhotplug.vhotplug:main",
+        ],
+    },
 )
