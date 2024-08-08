@@ -1,7 +1,7 @@
 # vhotplug
 
 This application runs as a service on the host system, listening for device add and remove events using libudev.
-It dynamically adds USB devices to a QEMU virtual machine via the QEMU Machine Protocol (QMP) sockets using the official qemu.qmp library.
+It dynamically adds USB devices to a QEMU virtual machines via the QEMU Machine Protocol (QMP) sockets using the official qemu.qmp library.
 
 # Features
 
@@ -15,38 +15,24 @@ It dynamically adds USB devices to a QEMU virtual machine via the QEMU Machine P
 # Example
 
 ```
-sudo python3 ./main.py --add-connected --qmp-input /var/run/qmp.sock
+sudo python3 -m vhotplug -a -c ./vhotplug.conf
 ```
 
 # Usage
 
 ```
-usage: main.py [-h] [--add-connected | --no-add-connected]
-               [--add-evdev | --no-add-evdev] [--pcie-bus-prefix BUSPREFIX]
-               [--qmp-input QMPINPUT] [--qmp-sound QMPSOUND]
-               [--qmp-disk QMPDISK] [--qmp-net QMPNET]
-               [-d | --debug | --no-debug]
+usage: vhotplug [-h] -c CONFIG
+                [-a | --attach-connected | --no-attach-connected]
+                [-d | --debug | --no-debug]
 
 Hot-plugging USB devices to the virtual machines
 
 options:
   -h, --help            show this help message and exit
-  --add-connected, --no-add-connected
-                        Add already connected devices on startup (default:
-                        False)
-  --add-evdev, --no-add-evdev
-                        Add non-USB input devices using evdev passthrough
-                        (default: False)
-  --pcie-bus-prefix BUSPREFIX
-                        PCIe bus prefix for evdev passthrough
-  --qmp-input QMPINPUT  Enable hot-plugging of input devices using the
-                        specified QMP socket
-  --qmp-sound QMPSOUND  Enable hot-plugging of sound devices using the
-                        specified QMP socket
-  --qmp-disk QMPDISK    Enable hot-plugging of disk devices using the
-                        specified QMP socket
-  --qmp-net QMPNET      Enable hot-plugging of network devices using the
-                        specified QMP socket
+  -c CONFIG, --config CONFIG
+                        Path to the configuration file
+  -a, --attach-connected, --no-attach-connected
+                        Attach connected devices on startup (default: False)
   -d, --debug, --no-debug
                         Enable debug messages (default: False)
 ```

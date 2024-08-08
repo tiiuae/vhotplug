@@ -1,0 +1,31 @@
+{
+    "vms": [
+      {
+        "name": "vm1",
+        "qmpSocket": "/tmp/qmp-socket1",
+        "usbDevices": [
+          {
+            "vid": "046d",
+            "pid": "c52b"
+          }
+        ],
+        "usbClasses": [
+          {
+            "class": 11,
+            "subclass": 6,
+            "protocols": 5,
+            "ignoreDevices": [
+              {
+                "vid": "058f",
+                "pid": "9540"
+              }
+            ]
+          }
+        ],
+        "evdevPassthrough": {
+            "enable": false,
+            "pcieBusPrefix": "ep"
+        }
+      }
+    ]
+  }

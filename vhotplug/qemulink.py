@@ -11,6 +11,19 @@ class QEMULink:
     def __init__(self, socket_path):
         self.socket_path = socket_path
 
+    async def wait_for_vm(self):
+        while True:
+            try:
+                status = await self.query_status()
+                if status == "running":
+                    logger.info("The VM is running")
+                    break
+                else:
+                    logger.info(f"VM status: {status}")
+            except Exception as e:
+                logger.error(f"Failed to query VM status: {e}")
+            await asyncio.sleep(1)
+
     async def query_commands(self):
         qmp = QMPClient()
         try:
@@ -78,20 +91,20 @@ class QEMULink:
             await qmp.disconnect()
 
     async def add_usb_device(self, device):
+        busnum = int(device.properties.get("BUSNUM"))
+        devnum = int(device.properties.get("DEVNUM"))
+        qemuid = f"usb{busnum}{devnum}"
         i = 0
         while True:
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
-                busnum = int(device.properties["BUSNUM"])
-                devnum = int(device.properties["DEVNUM"])
-                qemuid = f"usb{busnum}{devnum}"
-                logger.info(f"Adding USB device with id {qemuid} to {self.socket_path}")
+                logger.debug(f"Adding USB device with id {qemuid} to {self.socket_path}")
                 res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": busnum, "hostaddr": devnum, "id": qemuid})
                 if res:
                     logger.error(f"Failed to add device: {res}")
                 else:
-                    logger.info(f"Attached USB device. BUSNUM: {busnum}, DEVNUM: {devnum}.")
+                    logger.debug(f"Attached USB device {qemuid}. BUSNUM: {busnum}, DEVNUM: {devnum}.")
                 return
             except Exception as e:
                 if str(e).startswith("Duplicate device ID"):
@@ -137,7 +150,7 @@ class QEMULink:
             qemuid = device.sys_name
             if idindex > 0:
                 qemuid += f"-{idindex}"
-            logger.info(f"Adding evdev device {device.device_node} with id {qemuid} to bus {bus}")
+            logger.debug(f"Adding evdev device {device.device_node} with id {qemuid} to bus {bus}")
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
@@ -145,15 +158,15 @@ class QEMULink:
                 if res:
                     logger.error(f"Failed to add evdev device: {res}")
                 else:
-                    logger.info(f"Attached evdev device {device.device_node}")
+                    logger.debug(f"Attached evdev device {device.device_node}")
                     return
             except Exception as e:
                 logger.error(f"Failed to add evdev device: {e}")
                 if str(e).startswith("Duplicate device ID"):
                     idindex += 1
                 else:
-                    logger.error(f"{type(e)}")
-                    logger.error(f"{e.args}")
+                    #logger.error(f"{type(e)}")
+                    #logger.error(f"{e.args}")
                     i += 1
             finally:
                 await qmp.disconnect()
@@ -166,7 +179,7 @@ class QEMULink:
         logger.error(f"Failed to add evdev device {device.device_node}")
 
     async def remove_evdev_device(self, device):
-        logger.info(f"Removing evdev device {device.device_node} with id {device.sys_name}")
+        logger.debug(f"Removing evdev device {device.device_node} with id {device.sys_name}")
         qmp = QMPClient()
         try:
             await qmp.connect(self.socket_path)
@@ -174,21 +187,8 @@ class QEMULink:
             if res:
                 logger.error(f"Failed to remove evdev device: {res}")
             else:
-                logger.info(f"Removed evdev device {device.sys_name}")
+                logger.debug(f"Removed evdev device {device.sys_name}")
         except Exception as e:
             logger.error(f"Failed to remove evdev device: {e}")
         finally:
             await qmp.disconnect()
-
-    async def wait_for_vm(self):
-        while True:
-            try:
-                status = await self.query_status()
-                if status == "running":
-                    logger.info("The VM is running")
-                    break
-                else:
-                    logger.info(f"VM status: {status}")
-            except Exception as e:
-                logger.error(f"Failed to query VM status: {e}")
-            await asyncio.sleep(1)
