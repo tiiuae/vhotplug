@@ -15,6 +15,12 @@
                             "description": "Logitech, Inc. Unifying Receiver"
                         }
                     ]
+                },
+                {
+                    "vid": "2357",
+                    "pid": "0601",
+                    "description": "TP-LINK UE300",
+                    "disable": true
                 }
             ],
             "evdevPassthrough": {

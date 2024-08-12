@@ -41,6 +41,9 @@ class Config:
                 for usb in vm.get("usbPassthrough", []):
                     matches = False
 
+                    if usb.get("disable") == True:
+                        continue
+
                     # Find a VM by VID/PID
                     usb_vid = usb.get("vid")
                     usb_pid = usb.get("pid")
