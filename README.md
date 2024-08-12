@@ -37,6 +37,43 @@ options:
                         Enable debug messages (default: False)
 ```
 
+# Sample config
+
+```json
+{
+    "vms": [
+        {
+            "name": "vm1",
+            "qmpSocket": "/tmp/qmp-socket1",
+            "usbPassthrough": [
+                {
+                    "class": 3,
+                    "protocol": 2,
+                    "description": "HID Mouse",
+                    "ignore": [
+                        {
+                            "vid": "046d",
+                            "pid": "c52b",
+                            "description": "Logitech, Inc. Unifying Receiver"
+                        }
+                    ]
+                },
+                {
+                    "vid": "2357",
+                    "pid": "0601",
+                    "description": "TP-LINK UE300",
+                    "disable": true
+                }
+            ],
+            "evdevPassthrough": {
+                "enable": false,
+                "pcieBusPrefix": "ep"
+            }
+        }
+    ]
+}
+```
+
 # License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
