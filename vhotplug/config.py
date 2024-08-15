@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 logger = logging.getLogger("vhotplug")
 
@@ -31,11 +32,9 @@ class Config:
                 logger.error(f"Failed to parse USB interfaces: {e}")
         return result
 
-    def vm_for_usb_device(self, vid, pid, interfaces):
-        if not vid or not pid:
-            return None
+    def vm_for_usb_device(self, vid, pid, vendor_name, product_name, interfaces):
         try:
-            logger.debug(f"Searching for a VM for {vid}:{pid}")
+            logger.debug(f"Searching for a VM for {vid}:{pid}, {vendor_name}:{product_name}")
             for vm in self.config.get("vms", []):
                 vm_name = vm.get("name")
                 for usb in vm.get("usbPassthrough", []):
@@ -45,14 +44,27 @@ class Config:
                         continue
 
                     # Find a VM by VID/PID
-                    usb_vid = usb.get("vid")
-                    usb_pid = usb.get("pid")
-                    logger.debug(f"Checking {usb_vid}:{usb_pid}")
+                    usb_vid = usb.get("vendorId")
+                    usb_pid = usb.get("productId")
+                    usb_description = usb.get("description")
+                    logger.debug(f"Rule {usb_description}")
+                    logger.debug(f"Checking {vid}:{pid} against {usb_vid}:{usb_pid}")
                     vidMatch = usb_vid and vid.casefold() == usb_vid.casefold()
                     pidMatch = usb_pid and pid.casefold() == usb_pid.casefold()
                     if vidMatch and pidMatch:
-                        logger.info(f"Found VM {vm_name} by VID/PID")
+                        logger.info(f"Found VM {vm_name} by vendor id / product id, description: {usb_description}")
                         matches = True
+
+                    # Find a VM by vendor name / product name
+                    if not matches:
+                        usb_vname = usb.get("vendorName")
+                        usb_pname = usb.get("productName")
+                        logger.debug(f"Checking {vendor_name}:{product_name} against {usb_vname}:{usb_pname}")
+                        vnameMatch = usb_vname and re.match(usb_vname, vendor_name, re.IGNORECASE)
+                        pnameMatch = usb_pname and re.match(usb_pname, product_name, re.IGNORECASE)
+                        if vnameMatch or pnameMatch:
+                            logger.info(f"Found VM {vm_name} by vendor name / product name, description: {usb_description}")
+                            matches = True
 
                     # Find a VM by interface class, subclass and protocol
                     if not matches:
@@ -69,7 +81,7 @@ class Config:
                                 subclassMatch = not usb_subclass or usb_subclass == interface_subclass
                                 protocolMatch = not usb_protocol or usb_protocol == interface_protocol
                                 if subclassMatch and protocolMatch:
-                                    logger.info(f"Found VM {vm_name} by USB interface class")
+                                    logger.info(f"Found VM {vm_name} by USB interface class, description: {usb_description}")
                                     matches = True
                                     break
 
@@ -77,10 +89,13 @@ class Config:
                     if matches:
                         ignore = False
                         for dev in usb.get("ignore", []):
-                            ignore_vid = dev.get("vid")
-                            ignore_pid = dev.get("pid")
+                            if dev.get("disable") == True:
+                                continue
+                            ignore_vid = dev.get("vendorId")
+                            ignore_pid = dev.get("productId")
+                            ignore_description = dev.get("description")
                             if (vid and pid) and (vid.casefold() == ignore_vid.casefold()) and (pid.casefold() == ignore_pid.casefold()):
-                                logger.info(f"Device {vid}:{pid} is ignored")
+                                logger.info(f"Device {vid}:{pid} is ignored, description: {ignore_description}")
                                 ignore = True
                                 break
 

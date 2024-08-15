@@ -50,7 +50,6 @@ async def async_main():
 
     context = pyudev.Context()
     if args.attach_connected:
-        logger.info("Checking connected devices")
         await attach_connected_devices(context, config)
 
     monitor = pyudev.Monitor.from_netlink(context)

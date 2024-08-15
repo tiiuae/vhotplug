@@ -166,17 +166,18 @@ class QEMULink:
                 await qmp.connect(self.socket_path)
                 res = await qmp.execute("device_add", {"driver": "virtio-input-host-pci", "evdev": device.device_node, "id": qemuid, "bus": bus})
                 if res:
-                    logger.error(f"Failed to add evdev device: {res}")
+                    logger.error(f"Failed to add evdev device to bus {bus}: {res}")
                 else:
-                    logger.info(f"Attached evdev device {device.device_node}")
+                    logger.info(f"Attached evdev device {device.device_node} to bus {bus}")
                     return
             except Exception as e:
-                logger.error(f"Failed to add evdev device: {e}")
                 if str(e).startswith("Duplicate device ID"):
                     idindex += 1
+                elif str(e).endswith("Device or resource busy"):
+                    logger.info("The device is busy, it is likely already connected to the VM")
+                    return
                 else:
-                    #logger.error(f"{type(e)}")
-                    #logger.error(f"{e.args}")
+                    logger.error(f"Failed to add evdev device to bus {bus}: {e}")
                     i += 1
             finally:
                 await qmp.disconnect()

@@ -52,16 +52,27 @@ options:
                     "description": "HID Mouse",
                     "ignore": [
                         {
-                            "vid": "046d",
-                            "pid": "c52b",
+                            "vendorId": "046d",
+                            "productId": "c52b",
                             "description": "Logitech, Inc. Unifying Receiver"
                         }
                     ]
                 },
                 {
-                    "vid": "2357",
-                    "pid": "0601",
-                    "description": "TP-LINK UE300",
+                    "productName": ".*ethernet.*",
+                    "description": "Ethernet devices",
+                    "ignore": [
+                        {
+                            "vendorId": "0b95",
+                            "productId": "1790",
+                            "description": "AX88179 Gigabit Ethernet"
+                        }
+                    ]
+                },
+                {
+                    "vendorId": "067b",
+                    "productId": "23a3",
+                    "description": "Prolific USB-to-Serial Bridge",
                     "disable": true
                 }
             ],
