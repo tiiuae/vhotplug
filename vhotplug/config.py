@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from vhotplug.device import *
 
 logger = logging.getLogger("vhotplug")
 
@@ -12,25 +13,6 @@ class Config:
     def load(self):
         with open(self.path, 'r') as file:
             return json.load(file)
-
-    def parse_usb_interfaces(self, interfaces):
-        result = []
-        if interfaces:
-            try:
-                interfaces = interfaces.strip(':')
-                for interface in interfaces.split(':'):
-                    if len(interface) >= 6:
-                        usb_class = interface[:2]
-                        usb_subclass = interface[2:4]
-                        usb_protocol = interface[4:6]
-                        result.append({
-                            "class": int(usb_class, 16),
-                            "subclass": int(usb_subclass, 16),
-                            "protocol": int(usb_protocol, 16)
-                        })
-            except Exception as e:
-                logger.error(f"Failed to parse USB interfaces: {e}")
-        return result
 
     def vm_for_usb_device(self, vid, pid, vendor_name, product_name, interfaces):
         try:
@@ -71,7 +53,7 @@ class Config:
                         usb_class = usb.get("class")
                         usb_subclass = usb.get("subclass")
                         usb_protocol = usb.get("protocol")
-                        usb_interfaces = self.parse_usb_interfaces(interfaces)
+                        usb_interfaces = parse_usb_interfaces(interfaces)
                         for interface in usb_interfaces:
                             interface_class = interface["class"]
                             interface_subclass = interface["subclass"]

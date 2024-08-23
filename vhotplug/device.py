@@ -109,15 +109,18 @@ def get_usb_info(device):
     interfaces = device.properties.get("ID_USB_INTERFACES")
     return vid, pid, vendor_name, product_name, interfaces
 
-async def attach_usb_device(config, device):
+async def attach_usb_device(context, config, device):
     vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
     vm = config.vm_for_usb_device(vid, pid, vendor_name, product_name, interfaces)
     if vm:
         vm_name = vm.get("name")
         qmp_socket = vm.get("qmpSocket")
         logger.info(f"Attaching to {vm_name} ({qmp_socket})")
+        if is_boot_device(context, device):
+            logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
+            return
         qemu = QEMULink(qmp_socket)
-        await qemu.add_usb_device(device)
+        await qemu.add_usb_device_by_vid_pid(device, int(vid, 16), int(pid, 16))
     else:
         logger.info(f"No VM found for {vid}:{pid}")
 
@@ -141,6 +144,34 @@ async def attach_evdev_device(vm, busprefix, pcieport, device):
     logger.info(f"Attaching evdev device to {vm_name} ({qmp_socket}) on bus {bus}")
     qemu = QEMULink(qmp_socket)
     await qemu.add_evdev_device(device, bus)
+
+def parse_usb_interfaces(interfaces):
+    result = []
+    if interfaces:
+        try:
+            interfaces = interfaces.strip(':')
+            for interface in interfaces.split(':'):
+                l = len(interface)
+                if len(interface) >= 6:
+                    usb_class = interface[:2]
+                    usb_subclass = interface[2:4]
+                    usb_protocol = interface[4:6]
+                    result.append({
+                        "class": int(usb_class, 16),
+                        "subclass": int(usb_subclass, 16),
+                        "protocol": int(usb_protocol, 16)
+                    })
+        except Exception as e:
+            logger.error(f"Failed to parse USB interfaces: {e}")
+    return result
+
+def is_usb_hub(interfaces):
+    usb_interfaces = parse_usb_interfaces(interfaces)
+    for interface in usb_interfaces:
+        interface_class = interface["class"]
+        if interface_class == 9:
+            return True
+    return False
 
 async def attach_connected_devices(context, config):
     # Non-USB evdev passthrough
@@ -171,7 +202,7 @@ async def attach_connected_devices(context, config):
             logger.info(f"Found USB device {vid}:{pid}: {device.device_node}")
             logger.info(f'Vendor: "{vendor_name}", product: "{product_name}", interfaces: "{interfaces}"')
             log_device(device)
-            if is_boot_device(context, device):
-                logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
-            else:
-                await attach_usb_device(config, device)
+            if is_usb_hub(interfaces):
+                logger.info(f"USB device {vid}:{pid} is a USB hub, skipping")
+                continue
+            await attach_usb_device(context, config, device)

@@ -9,7 +9,7 @@ from vhotplug.config import *
 
 logger = logging.getLogger("vhotplug")
 
-async def device_event(config, device):
+async def device_event(context, config, device):
     if device.action == 'add':
         logger.debug(f"Device plugged: {device.sys_name}.")
         logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
@@ -18,7 +18,7 @@ async def device_event(config, device):
             vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
             logger.info(f"USB device {vid}:{pid} connected: {device.device_node}")
             logger.info(f'Vendor: "{vendor_name}", product: "{product_name}", interfaces: "{interfaces}"')
-            await attach_usb_device(config, device)
+            await attach_usb_device(context, config, device)
     elif device.action == 'remove':
         logger.debug(f"Device unplugged: {device.sys_name}.")
         logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
@@ -59,7 +59,8 @@ async def async_main():
         while True:
             device = monitor.poll(timeout=1)
             if device != None:
-                await device_event(config, device)
+                await device_event(context, config, device)
+
     except KeyboardInterrupt:
         logger.info("Ctrl+C")
 

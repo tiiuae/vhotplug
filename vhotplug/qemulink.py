@@ -135,6 +135,37 @@ class QEMULink:
                 break
         logger.error(f"Failed to add USB device: {qemuid}")
 
+    async def add_usb_device_by_vid_pid(self, device, vid, pid):
+        qemuid = self.id_for_usb(device)
+        i = 0
+        while True:
+            qmp = QMPClient()
+            try:
+                await qmp.connect(self.socket_path)
+                logger.debug(f"Adding USB device {vid}:{pid} with id {qemuid} to {self.socket_path}")
+                res = await qmp.execute("device_add", {"driver": "usb-host", "vendorid": vid, "productid": pid, "id": qemuid})
+                if res:
+                    logger.error(f"Failed to add device {vid}:{pid} with id {qemuid}: {res}")
+                else:
+                    logger.info(f"Attached USB device {vid}:{pid} with id {qemuid}")
+                return
+            except Exception as e:
+                if str(e).startswith("Duplicate device ID"):
+                    logger.info(f"USB device {vid}:{pid} with id {qemuid} is already attached to the VM")
+                    return
+                else:
+                    logger.error(f"Failed to add USB device {vid}:{pid} with id {qemuid}: {e}")
+                    i += 1
+            finally:
+                await qmp.disconnect()
+
+            if i < self.retry_count:
+                logger.info(f"Retrying")
+                await asyncio.sleep(self.retry_timeout)
+            else:
+                break
+        logger.error(f"Failed to add USB device {vid}:{pid} with id {qemuid}")
+
     async def remove_usb_device(self, device):
         qmp = QMPClient()
         try:
