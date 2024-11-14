@@ -6,6 +6,7 @@ import os
 from vhotplug.qemulink import *
 from vhotplug.device import *
 from vhotplug.config import *
+from vhotplug.filewatcher import *
 
 logger = logging.getLogger("vhotplug")
 
@@ -54,12 +55,19 @@ async def async_main():
 
     monitor = pyudev.Monitor.from_netlink(context)
 
+    watcher = FileWatcher()
+    for vm in config.get_all_vms():
+        qmp_socket = vm.get("qmpSocket")
+        watcher.add_file(qmp_socket)
+
     logger.info("Waiting for new devices")
     try:
         while True:
             device = monitor.poll(timeout=1)
             if device != None:
                 await device_event(context, config, device)
+            if watcher.detect_restart() == True and args.attach_connected:
+                    await attach_connected_devices(context, config)
 
     except KeyboardInterrupt:
         logger.info("Ctrl+C")
