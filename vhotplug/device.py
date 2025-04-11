@@ -109,7 +109,7 @@ def get_usb_info(device):
     interfaces = device.properties.get("ID_USB_INTERFACES")
     return vid, pid, vendor_name, product_name, interfaces
 
-async def attach_usb_device(context, config, device):
+async def attach_usb_device(context, config, device, use_vid_pid):
     vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
     vm = config.vm_for_usb_device(vid, pid, vendor_name, product_name, interfaces)
     if vm:
@@ -120,7 +120,10 @@ async def attach_usb_device(context, config, device):
             logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
             return
         qemu = QEMULink(qmp_socket)
-        await qemu.add_usb_device_by_vid_pid(device, int(vid, 16), int(pid, 16))
+        if use_vid_pid:
+            await qemu.add_usb_device_by_vid_pid(device, vid, pid)
+        else:
+            await qemu.add_usb_device(device)
     else:
         logger.info(f"No VM found for {vid}:{pid}")
 
@@ -205,4 +208,4 @@ async def attach_connected_devices(context, config):
             if is_usb_hub(interfaces):
                 logger.info(f"USB device {vid}:{pid} is a USB hub, skipping")
                 continue
-            await attach_usb_device(context, config, device)
+            await attach_usb_device(context, config, device, False)

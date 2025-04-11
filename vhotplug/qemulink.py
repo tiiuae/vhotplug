@@ -111,7 +111,7 @@ class QEMULink:
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
-                logger.debug(f"Adding USB device with id {qemuid} to {self.socket_path}")
+                logger.info(f"Adding USB device with id {qemuid} bus {busnum} dev {devnum} to {self.socket_path}")
                 res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": busnum, "hostaddr": devnum, "id": qemuid})
                 if res:
                     logger.error(f"Failed to add device {qemuid}: {res}")
@@ -143,7 +143,7 @@ class QEMULink:
             try:
                 await qmp.connect(self.socket_path)
                 logger.debug(f"Adding USB device {vid}:{pid} with id {qemuid} to {self.socket_path}")
-                res = await qmp.execute("device_add", {"driver": "usb-host", "vendorid": vid, "productid": pid, "id": qemuid})
+                res = await qmp.execute("device_add", {"driver": "usb-host", "vendorid": int(vid, 16), "productid": int(pid, 16), "id": qemuid})
                 if res:
                     logger.error(f"Failed to add device {vid}:{pid} with id {qemuid}: {res}")
                 else:
