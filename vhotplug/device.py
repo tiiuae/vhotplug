@@ -2,12 +2,29 @@ import logging
 import fcntl
 import struct
 import psutil
+import os
+import sys
+import time
 from vhotplug.qemulink import *
 
 EVIOCGRAB = 0x40044590
 EVIOCGNAME = 0x82004506
 
 logger = logging.getLogger("vhotplug")
+
+def wait_target_vm(qmp_socket, timeout=30, interval=3):
+    start = time.time()
+    while True:
+        if os.path.exists(qmp_socket):
+            logger.debug(f" Found qmpSocket {qmp_socket} ...")
+            break
+        if time.time() - start > timeout:
+            logger.debug(f"Timeout! qmpSocket {qmp_socket} not found.")
+            return True
+        logger.debug(f"Waiting for qmpSocket {qmp_socket} ...")
+        time.sleep(interval)
+    return False
+
 
 def log_device(device, level=logging.DEBUG):
     try:
@@ -116,6 +133,9 @@ async def attach_usb_device(context, config, device, use_vid_pid):
         vm_name = vm.get("name")
         qmp_socket = vm.get("qmpSocket")
         logger.info(f"Attaching to {vm_name} ({qmp_socket})")
+        if wait_target_vm(qmp_socket):
+            logger.warning(f"VM:{vm_name} timeout! Couldn't retrieve {qmp_socket}")
+            return
         if is_boot_device(context, device):
             logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
             return
@@ -143,6 +163,9 @@ async def remove_usb_device(config, device):
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     vm_name = vm.get("name")
     qmp_socket = vm.get("qmpSocket")
+    if wait_target_vm(qmp_socket):
+        logger.warning(f"VM:{vm_name} timeout! Couldn't retrieve {qmp_socket}")
+        return
     bus = f"{busprefix}{pcieport}"
     logger.info(f"Attaching evdev device to {vm_name} ({qmp_socket}) on bus {bus}")
     qemu = QEMULink(qmp_socket)
