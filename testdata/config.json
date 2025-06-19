@@ -1,0 +1,50 @@
+{
+  "usb": {
+		"hotplug_rules": {
+			"denylist": {
+				"0xbadb" : ["0xdada"],
+				"~0xbabb" : ["0xcaca"]
+			},
+
+			"allowlist" : {
+				"0x0b95:0x1790" : ["net-vm"]
+			},
+
+			"classlist" : {
+				"0x01:*:*" : ["audio-vm"],
+				"0x03:*:0x01" : ["gui-vm"],
+				"0x03:*:0x02" : ["gui-vm"],
+				"0x08:0x06:*" : ["gui-vm"],
+				"0x0b:*:*" : ["gui-vm"],
+				"0x11:*:*" : ["gui-vm"],
+				"0xe0:0x01:0x01" : ["gui-vm"],
+				"0x02:06:*" : ["net-vm"],
+				"0x0e:*:*" : ["chrome-vm"]
+			}
+		},
+		"static_devices" : [
+			{
+				"hostbus":null,
+				"hostport":null,
+				"name":"crazyradio1",
+				"productId":"0101",
+				"vendorId":"1915",
+				"vmUdevExtraRule":null,
+				"vms":["gui-vm"]
+			},
+			{
+				"hostbus":null,
+				"hostport":null,
+				"name":"crazyflie0",
+				"productId":    "5740",
+				"vendorId":"0483",
+				"vmUdevExtraRule":null,
+				"vms":["test-vm"]
+			}
+		]
+  },
+  "eventDevices": {
+    "targetVM": "gui-vm",
+    "pcieBusPrefix":"rp"
+  }
+}
