@@ -2,7 +2,8 @@ import logging
 import fcntl
 import struct
 import psutil
-from vhotplug.qemulink import *
+from vhotplug.qemulink import QEMULink
+from vhotplug.crosvmlink import CrosvmLink
 
 EVIOCGRAB = 0x40044590
 EVIOCGNAME = 0x82004506
@@ -109,43 +110,66 @@ def get_usb_info(device):
     interfaces = device.properties.get("ID_USB_INTERFACES")
     return vid, pid, vendor_name, product_name, interfaces
 
-async def attach_usb_device(context, config, device, use_vid_pid):
+async def attach_usb_device(context, config, device):
     vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
     vm = config.vm_for_usb_device(vid, pid, vendor_name, product_name, interfaces)
     if vm:
         vm_name = vm.get("name")
-        qmp_socket = vm.get("qmpSocket")
-        logger.info(f"Attaching to {vm_name} ({qmp_socket})")
+        vm_type = vm.get("type")
+        logger.info(f"Attaching to {vm_name} ({vm_type})")
         if is_boot_device(context, device):
             logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
             return
-        qemu = QEMULink(qmp_socket)
-        if use_vid_pid:
-            await qemu.add_usb_device_by_vid_pid(device, vid, pid)
-        else:
+        vm_socket = vm.get("socket")
+        if vm_type == "qemu":
+            qemu = QEMULink(vm_socket)
+            #await qemu.add_usb_device_by_vid_pid(device, vid, pid)
             await qemu.add_usb_device(device)
+        elif vm_type == "crosvm":
+            crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
+            await crosvm.add_usb_device(device)
+        else:
+            logger.error(f"Unknown VM type: {vm_type}")
     else:
         logger.info(f"No VM found for {vid}:{pid}")
 
 async def remove_usb_device(config, device):
+    # Enumerate all VMs, find the one with the device attached and remove it
     for vm in config.get_all_vms():
         vm_name = vm.get("name")
-        qmp_socket = vm.get("qmpSocket")
-        logger.debug(f"Checking {vm_name} ({qmp_socket})")
-        qemu = QEMULink(qmp_socket)
-        ids = await qemu.usb()
-        qemuid = qemu.id_for_usb(device)
-        if qemuid in ids:
-            logger.info(f"Removing {qemuid} from {vm_name} ({qmp_socket})")
-            qemu = QEMULink(qmp_socket)
-            await qemu.remove_usb_device(device)
+        logger.info(f"Checking {vm_name}")
+        vm_type = vm.get("type")
+        vm_socket = vm.get("socket")
+        if vm_type == "qemu":
+            qemu = QEMULink(vm_socket)
+            ids = await qemu.usb()
+            qemuid = qemu.id_for_usb(device)
+            if qemuid in ids:
+                logger.info(f"Removing {qemuid} from {vm_name})")
+                await qemu.remove_usb_device(device)
+        elif vm_type == "crosvm":
+            # Crosvm seems to automatically remove the device from the list so this code is not really used
+            vid = device.properties.get("ID_VENDOR_ID")
+            pid = device.properties.get("ID_MODEL_ID")
+            crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
+            devices = await crosvm.usb_list()
+            for index, crosvm_vid, crosvm_pid in devices:
+                if vid == crosvm_vid and pid == crosvm_pid:
+                    logger.info(f"Removing {index} from {vm_name})")
+                    await crosvm.remove_usb_device(index)
+        else:
+            logger.error(f"Unsupported vm type: {vm_type}")
 
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     vm_name = vm.get("name")
-    qmp_socket = vm.get("qmpSocket")
+    vm_type = vm.get("type")
+    if vm_type != "qemu":
+        logger.error(f"Evdev passthrough is not supported for {vm_name} with type {vm_type}")
+        return
+    vm_socket = vm.get("socket")
     bus = f"{busprefix}{pcieport}"
-    logger.info(f"Attaching evdev device to {vm_name} ({qmp_socket}) on bus {bus}")
-    qemu = QEMULink(qmp_socket)
+    logger.info(f"Attaching evdev device to {vm_name} ({vm_socket}) on bus {bus}")
+    qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device, bus)
 
 def parse_usb_interfaces(interfaces):
@@ -208,4 +232,4 @@ async def attach_connected_devices(context, config):
             if is_usb_hub(interfaces):
                 logger.info(f"USB device {vid}:{pid} is a USB hub, skipping")
                 continue
-            await attach_usb_device(context, config, device, False)
+            await attach_usb_device(context, config, device)

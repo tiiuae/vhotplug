@@ -3,10 +3,9 @@ import logging
 import asyncio
 import argparse
 import os
-from vhotplug.qemulink import *
-from vhotplug.device import *
-from vhotplug.config import *
-from vhotplug.filewatcher import *
+from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_devices
+from vhotplug.config import Config
+from vhotplug.filewatcher import FileWatcher
 
 logger = logging.getLogger("vhotplug")
 
@@ -19,7 +18,7 @@ async def device_event(context, config, device):
             vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
             logger.info(f"USB device {vid}:{pid} connected: {device.device_node}")
             logger.info(f'Vendor: "{vendor_name}", product: "{product_name}", interfaces: "{interfaces}"')
-            await attach_usb_device(context, config, device, False)
+            await attach_usb_device(context, config, device)
     elif device.action == 'remove':
         logger.debug(f"Device unplugged: {device.sys_name}.")
         logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
@@ -62,8 +61,9 @@ async def async_main():
 
     watcher = FileWatcher()
     for vm in config.get_all_vms():
-        qmp_socket = vm.get("qmpSocket")
-        watcher.add_file(qmp_socket)
+        vm_socket = vm.get("socket")
+        if vm_socket:
+            watcher.add_file(vm_socket)
 
     logger.info("Waiting for new devices")
     try:

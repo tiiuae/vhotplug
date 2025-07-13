@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-from vhotplug.device import *
 
 logger = logging.getLogger("vhotplug")
 
@@ -15,6 +14,7 @@ class Config:
             return json.load(file)
 
     def vm_for_usb_device(self, vid, pid, vendor_name, product_name, interfaces):
+        from vhotplug.device import parse_usb_interfaces
         try:
             logger.debug(f"Searching for a VM for {vid}:{pid}, {vendor_name}:{product_name}")
             for vm in self.config.get("vms", []):

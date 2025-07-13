@@ -44,7 +44,8 @@ options:
     "vms": [
         {
             "name": "vm1",
-            "qmpSocket": "/tmp/qmp-socket1",
+            "type": "qemu",
+            "socket": "/tmp/qmp-socket1",
             "usbPassthrough": [
                 {
                     "class": 3,

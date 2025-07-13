@@ -2,12 +2,13 @@ from qemu.qmp import QMPClient
 import logging
 import asyncio
 import re
+from vhotplug.config import Config
 
 logger = logging.getLogger("vhotplug")
 
 class QEMULink:
-    retry_count = 5
-    retry_timeout = 1
+    vm_retry_count = 5
+    vm_retry_timeout = 1
 
     def __init__(self, socket_path):
         self.socket_path = socket_path
@@ -128,9 +129,9 @@ class QEMULink:
             finally:
                 await qmp.disconnect()
 
-            if i < self.retry_count:
+            if i < self.vm_retry_count:
                 logger.info(f"Retrying")
-                await asyncio.sleep(self.retry_timeout)
+                await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
         logger.error(f"Failed to add USB device: {qemuid}")
@@ -159,9 +160,9 @@ class QEMULink:
             finally:
                 await qmp.disconnect()
 
-            if i < self.retry_count:
+            if i < self.vm_retry_count:
                 logger.info(f"Retrying")
-                await asyncio.sleep(self.retry_timeout)
+                await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
         logger.error(f"Failed to add USB device {vid}:{pid} with id {qemuid}")
@@ -213,9 +214,9 @@ class QEMULink:
             finally:
                 await qmp.disconnect()
 
-            if i < self.retry_count:
+            if i < self.vm_retry_count:
                 logger.info(f"Retrying")
-                await asyncio.sleep(self.retry_timeout)
+                await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
         logger.error(f"Failed to add evdev device: {device.device_node}")
