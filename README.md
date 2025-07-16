@@ -1,16 +1,36 @@
 # vhotplug
 
-This application runs as a service on the host system, listening for device add and remove events using libudev.
-It dynamically adds USB devices to a QEMU virtual machines via the QEMU Machine Protocol (QMP) sockets using the official qemu.qmp library.
+This application runs as a service on the host, monitors device add/remove events using libudev and dynamically attaches USB devices to virtual machines based on rules defined in a configuration file.
 
 # Features
 
 - Automatically detects when devices are added or removed from the host.
-- Integrates with QEMU virtual machines to add or remove devices dynamically.
+- Integrates with QEMU and crosvm to add or remove devices in real time.
 - Uses libudev for device monitoring on the host.
 - No extra udev configuration is required.
 - Different device types can be assigned to different virtual machines.
-- Supports evdev passthrough (virtio-input-host-pci) of non-USB input devices.
+- Supports evdev passthrough (virtio-input-host-pci) of non-USB input devices for QEMU.
+
+# Rule Matching
+
+Device assignment is based on rules defined in the configuration file.
+Each rule can match devices using one or more of the following parameters:
+- vendorId — USB vendor ID (e.g., "0bda")
+- productId — USB product ID (e.g., "4852")
+- vendorName — Vendor name (from udev or USB database, supports regular expressions)
+- productName — Product name (from udev or USB database, supports regular expressions)
+- interfaceClass — USB interface class (e.g., 224)
+- interfaceSubclass — USB interface subclass (e.g., 1)
+- interfaceProtocol — USB interface protocol (e.g., 1)
+- deviceClass — USB device class (e.g., 224)
+- deviceSubclass — USB device subclass (e.g., 1)
+- deviceProtocol — USB device protocol (e.g., 1)
+
+The same parameters can also be used in ignore rules to explicitly exclude certain devices from being passed through.
+Only the fields present in a rule are used for matching. If multiple rules match a device, the first match is used.
+
+Note: Many USB devices are composite devices, meaning they expose multiple interfaces. When matching against interfaceClass, interfaceSubclass and interfaceProtocol, it is sufficient for at least one interface to match the rule.
+In practice, matching by interfaces is often more reliable than using device_class, since many real-world USB devices leave the device-level class fields unset or use generic values like 0 (defined at the interface level instead).
 
 # Example
 
@@ -48,8 +68,8 @@ options:
             "socket": "/tmp/qmp-socket1",
             "usbPassthrough": [
                 {
-                    "class": 3,
-                    "protocol": 2,
+                    "interfaceClass": 3,
+                    "interfaceProtocol": 2,
                     "description": "HID Mouse",
                     "ignore": [
                         {

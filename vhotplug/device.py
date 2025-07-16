@@ -4,6 +4,7 @@ import struct
 import psutil
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
+from vhotplug.usb import get_usb_info, is_usb_hub
 
 EVIOCGRAB = 0x40044590
 EVIOCGNAME = 0x82004506
@@ -98,21 +99,9 @@ def is_boot_device(context, device):
                         return True
     return False
 
-def get_usb_info(device):
-    vid = device.properties.get("ID_VENDOR_ID")
-    pid = device.properties.get("ID_MODEL_ID")
-    vendor_name = device.properties.get("ID_VENDOR_FROM_DATABASE")
-    if not vendor_name:
-        vendor_name = device.properties.get("ID_VENDOR")
-    product_name = device.properties.get("ID_MODEL_FROM_DATABASE")
-    if not product_name:
-        product_name = device.properties.get("ID_MODEL")
-    interfaces = device.properties.get("ID_USB_INTERFACES")
-    return vid, pid, vendor_name, product_name, interfaces
-
 async def attach_usb_device(context, config, device):
-    vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
-    vm = config.vm_for_usb_device(vid, pid, vendor_name, product_name, interfaces)
+    usb_info = get_usb_info(device)
+    vm = config.vm_for_usb_device(usb_info)
     if vm:
         vm_name = vm.get("name")
         vm_type = vm.get("type")
@@ -131,7 +120,7 @@ async def attach_usb_device(context, config, device):
         else:
             logger.error(f"Unknown VM type: {vm_type}")
     else:
-        logger.info(f"No VM found for {vid}:{pid}")
+        logger.info(f"No VM found for {usb_info.vid}:{usb_info.pid}")
 
 async def remove_usb_device(config, device):
     # Enumerate all VMs, find the one with the device attached and remove it
@@ -149,12 +138,11 @@ async def remove_usb_device(config, device):
                 await qemu.remove_usb_device(device)
         elif vm_type == "crosvm":
             # Crosvm seems to automatically remove the device from the list so this code is not really used
-            vid = device.properties.get("ID_VENDOR_ID")
-            pid = device.properties.get("ID_MODEL_ID")
+            usb_info = get_usb_info(device)
             crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
             devices = await crosvm.usb_list()
             for index, crosvm_vid, crosvm_pid in devices:
-                if vid == crosvm_vid and pid == crosvm_pid:
+                if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
                     logger.info(f"Removing {index} from {vm_name})")
                     await crosvm.remove_usb_device(index)
         else:
@@ -171,34 +159,6 @@ async def attach_evdev_device(vm, busprefix, pcieport, device):
     logger.info(f"Attaching evdev device to {vm_name} ({vm_socket}) on bus {bus}")
     qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device, bus)
-
-def parse_usb_interfaces(interfaces):
-    result = []
-    if interfaces:
-        try:
-            interfaces = interfaces.strip(':')
-            for interface in interfaces.split(':'):
-                l = len(interface)
-                if len(interface) >= 6:
-                    usb_class = interface[:2]
-                    usb_subclass = interface[2:4]
-                    usb_protocol = interface[4:6]
-                    result.append({
-                        "class": int(usb_class, 16),
-                        "subclass": int(usb_subclass, 16),
-                        "protocol": int(usb_protocol, 16)
-                    })
-        except Exception as e:
-            logger.error(f"Failed to parse USB interfaces: {e}")
-    return result
-
-def is_usb_hub(interfaces):
-    usb_interfaces = parse_usb_interfaces(interfaces)
-    for interface in usb_interfaces:
-        interface_class = interface["class"]
-        if interface_class == 9:
-            return True
-    return False
 
 async def attach_connected_devices(context, config):
     # Non-USB evdev passthrough
@@ -225,11 +185,11 @@ async def attach_connected_devices(context, config):
     logger.info("Checking connected USB devices")
     for device in context.list_devices(subsystem='usb'):
         if is_usb_device(device):
-            vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
-            logger.info(f"Found USB device {vid}:{pid}: {device.device_node}")
-            logger.info(f'Vendor: "{vendor_name}", product: "{product_name}", interfaces: "{interfaces}"')
+            usb_info = get_usb_info(device)
+            logger.info(f"Found USB device {usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name} {usb_info.product_name}): {device.device_node}")
+            logger.info(f'Device class: "{usb_info.device_class}", subclass: "{usb_info.device_subclass}", protocol: "{usb_info.device_protocol}", interfaces: "{usb_info.interfaces}"')
             log_device(device)
-            if is_usb_hub(interfaces):
-                logger.info(f"USB device {vid}:{pid} is a USB hub, skipping")
+            if is_usb_hub(usb_info.interfaces):
+                logger.info(f"USB device {usb_info.vid}:{usb_info.pid} is a USB hub, skipping")
                 continue
             await attach_usb_device(context, config, device)

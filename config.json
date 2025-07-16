@@ -6,8 +6,8 @@
             "socket": "/tmp/qmp-socket1",
             "usbPassthrough": [
                 {
-                    "class": 3,
-                    "protocol": 2,
+                    "interfaceClass": 3,
+                    "interfaceProtocol": 2,
                     "description": "HID Mouse",
                     "ignore": [
                         {
@@ -33,12 +33,38 @@
                     "productId": "23a3",
                     "description": "Prolific USB-to-Serial Bridge",
                     "disable": true
+                },
+                {
+                    "interfaceClass": 1,
+                    "description": "Audio",
+                    "ignore": [
+                        {
+                            "interfaceClass": 14,
+                            "description": "Video (USB Webcams)"
+                        }
+                    ]
                 }
             ],
             "evdevPassthrough": {
                 "enable": false,
                 "pcieBusPrefix": "ep"
             }
+        },
+        {
+            "name": "vm2",
+            "type": "crosvm",
+            "socket": "/tmp/crosvm-socket1",
+            "crosvm": "/usr/local/bin/crosvm",
+            "usbPassthrough": [
+                {
+                    "interfaceClass": 14,
+                    "description": "Video (USB Webcams)"
+                },
+                {
+                    "deviceClass": 224,
+                    "description": "Wireless Controller"
+                }
+            ]
         }
     ]
 }

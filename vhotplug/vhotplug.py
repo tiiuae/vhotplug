@@ -15,9 +15,9 @@ async def device_event(context, config, device):
         logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
         log_device(device)
         if is_usb_device(device):
-            vid, pid, vendor_name, product_name, interfaces = get_usb_info(device)
-            logger.info(f"USB device {vid}:{pid} connected: {device.device_node}")
-            logger.info(f'Vendor: "{vendor_name}", product: "{product_name}", interfaces: "{interfaces}"')
+            usb_info = get_usb_info(device)
+            logger.info(f"USB device {usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name} {usb_info.product_name}) connected: {device.device_node}")
+            logger.info(f'Device class: "{usb_info.device_class}", subclass: "{usb_info.device_subclass}", protocol: "{usb_info.device_protocol}", interfaces: "{usb_info.interfaces}"')
             await attach_usb_device(context, config, device)
     elif device.action == 'remove':
         logger.debug(f"Device unplugged: {device.sys_name}.")

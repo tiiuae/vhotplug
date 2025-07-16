@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from vhotplug.usb import parse_usb_interfaces
 
 logger = logging.getLogger("vhotplug")
 
@@ -13,79 +14,85 @@ class Config:
         with open(self.path, 'r') as file:
             return json.load(file)
 
-    def vm_for_usb_device(self, vid, pid, vendor_name, product_name, interfaces):
-        from vhotplug.device import parse_usb_interfaces
+    def match(self, usb_info, usb_rule):
+        if usb_rule.get("disable") == True:
+            return False
+
+        rule_description = usb_rule.get("description")
+        logger.debug(f"Rule {rule_description}")
+
+        # Find a VM by VID/PID
+        rule_vid = usb_rule.get("vendorId")
+        rule_pid = usb_rule.get("productId")
+        logger.debug(f"Checking {usb_info.vid}:{usb_info.pid} against {rule_vid}:{rule_pid}")
+        vidMatch = rule_vid and usb_info.vid and usb_info.vid.casefold() == rule_vid.casefold()
+        pidMatch = rule_pid and usb_info.pid and usb_info.pid.casefold() == rule_pid.casefold()
+        if vidMatch and pidMatch:
+            logger.info(f"Match by vendor id / product id, description: {rule_description}")
+            return True
+
+        # Find a VM by vendor name / product name
+        rule_vname = usb_rule.get("vendorName")
+        rule_pname = usb_rule.get("productName")
+        logger.debug(f"Checking {usb_info.vendor_name}:{usb_info.product_name} against {rule_vname}:{rule_pname}")
+        vnameMatch = rule_vname and re.match(rule_vname, usb_info.vendor_name or "", re.IGNORECASE)
+        pnameMatch = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
+        if vnameMatch or pnameMatch:
+            logger.info(f"Match by vendor name / product name, description: {rule_description}")
+            return True
+
+        # Find a VM by device class, subclass and protocol
+        rule_device_class = usb_rule.get("deviceClass")
+        rule_device_subclass = usb_rule.get("deviceSubclass")
+        rule_device_protocol = usb_rule.get("deviceProtocol")
+        logger.debug(f"Checking device class {usb_info.device_class}, subclass {usb_info.device_subclass}, protocol {usb_info.device_protocol}")
+        if rule_device_class and rule_device_class == usb_info.device_class:
+            subclassMatch = not rule_device_subclass or rule_device_subclass == usb_info.device_subclass
+            protocolMatch = not rule_device_protocol or rule_device_protocol == usb_info.device_protocol
+            if subclassMatch and protocolMatch:
+                logger.info(f"Match by USB device class, description: {rule_description}")
+                return True
+
+        # Find a VM by interface class, subclass and protocol
+        rule_interface_class = usb_rule.get("interfaceClass")
+        rule_interface_subclass = usb_rule.get("interfaceSubclass")
+        rule_interface_protocol = usb_rule.get("interfaceProtocol")
+        logger.debug(f"Checking rule interface class {rule_interface_class}, subclass {rule_interface_subclass}, protocol {rule_interface_protocol}")
+        usb_interfaces = parse_usb_interfaces(usb_info.interfaces)
+        for interface in usb_interfaces:
+            interface_class = interface["class"]
+            interface_subclass = interface["subclass"]
+            interface_protocol = interface["protocol"]
+            logger.debug(f"Checking usb interface class {interface_class}, subclass {interface_subclass}, protocol {interface_protocol}")
+            if rule_interface_class and rule_interface_class == interface_class:
+                subclassMatch = not rule_interface_subclass or rule_interface_subclass == interface_subclass
+                protocolMatch = not rule_interface_protocol or rule_interface_protocol == interface_protocol
+                if subclassMatch and protocolMatch:
+                    logger.info(f"Match by USB interface class, description: {rule_description}")
+                    return True
+        return False
+
+    def vm_for_usb_device(self, usb_info):
         try:
-            logger.debug(f"Searching for a VM for {vid}:{pid}, {vendor_name}:{product_name}")
+            usb_dev_name = f"{usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name}:{usb_info.product_name})"
+            logger.debug(f"Searching for a VM for {usb_dev_name}")
+            # Enumerate all virtual machines and check passthrough rules
             for vm in self.config.get("vms", []):
                 vm_name = vm.get("name")
-                for usb in vm.get("usbPassthrough", []):
-                    matches = False
-
-                    if usb.get("disable") == True:
-                        continue
-
-                    # Find a VM by VID/PID
-                    usb_vid = usb.get("vendorId")
-                    usb_pid = usb.get("productId")
-                    usb_description = usb.get("description")
-                    logger.debug(f"Rule {usb_description}")
-                    logger.debug(f"Checking {vid}:{pid} against {usb_vid}:{usb_pid}")
-                    vidMatch = usb_vid and vid.casefold() == usb_vid.casefold()
-                    pidMatch = usb_pid and pid.casefold() == usb_pid.casefold()
-                    if vidMatch and pidMatch:
-                        logger.info(f"Found VM {vm_name} by vendor id / product id, description: {usb_description}")
-                        matches = True
-
-                    # Find a VM by vendor name / product name
-                    if not matches:
-                        usb_vname = usb.get("vendorName")
-                        usb_pname = usb.get("productName")
-                        logger.debug(f"Checking {vendor_name}:{product_name} against {usb_vname}:{usb_pname}")
-                        vnameMatch = usb_vname and re.match(usb_vname, vendor_name, re.IGNORECASE)
-                        pnameMatch = usb_pname and re.match(usb_pname, product_name, re.IGNORECASE)
-                        if vnameMatch or pnameMatch:
-                            logger.info(f"Found VM {vm_name} by vendor name / product name, description: {usb_description}")
-                            matches = True
-
-                    # Find a VM by interface class, subclass and protocol
-                    if not matches:
-                        usb_class = usb.get("class")
-                        usb_subclass = usb.get("subclass")
-                        usb_protocol = usb.get("protocol")
-                        usb_interfaces = parse_usb_interfaces(interfaces)
-                        for interface in usb_interfaces:
-                            interface_class = interface["class"]
-                            interface_subclass = interface["subclass"]
-                            interface_protocol = interface["protocol"]
-                            logger.debug(f"Checking class {interface_class}, subclass {interface_subclass}, protocol: {interface_protocol}")
-                            if usb_class and usb_class == interface_class:
-                                subclassMatch = not usb_subclass or usb_subclass == interface_subclass
-                                protocolMatch = not usb_protocol or usb_protocol == interface_protocol
-                                if subclassMatch and protocolMatch:
-                                    logger.info(f"Found VM {vm_name} by USB interface class, description: {usb_description}")
-                                    matches = True
-                                    break
-
-                    # Check ignored devices
-                    if matches:
+                for usb_rule in vm.get("usbPassthrough", []):
+                    if self.match(usb_info, usb_rule):
+                        logger.info(f"Found VM {vm_name} for {usb_dev_name}")
+                        # Found a VM, check ignored devices
                         ignore = False
-                        for dev in usb.get("ignore", []):
-                            if dev.get("disable") == True:
-                                continue
-                            ignore_vid = dev.get("vendorId")
-                            ignore_pid = dev.get("productId")
-                            ignore_description = dev.get("description")
-                            if (vid and pid) and (vid.casefold() == ignore_vid.casefold()) and (pid.casefold() == ignore_pid.casefold()):
-                                logger.info(f"Device {vid}:{pid} is ignored, description: {ignore_description}")
+                        for usb_rule_ignore in usb_rule.get("ignore", []):
+                            if self.match(usb_info, usb_rule_ignore):
+                                logger.info(f"Device {usb_dev_name} is ignored")
                                 ignore = True
                                 break
-
                         if not ignore:
                             return vm
-
         except Exception as e:
-                logger.error(f"Failed to find VM for USB device in the configuration file: {e}")
+            logger.error(f"Failed to find VM for USB device in the configuration file: {e}")
         return None
 
     def vm_for_evdev_devices(self):
