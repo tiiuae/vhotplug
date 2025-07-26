@@ -1,6 +1,9 @@
 import logging
 import asyncio
 import subprocess
+import os
+import time
+import socket
 from vhotplug.config import Config
 
 logger = logging.getLogger("vhotplug")
@@ -8,6 +11,8 @@ logger = logging.getLogger("vhotplug")
 class CrosvmLink:
     vm_retry_count = 5
     vm_retry_timeout = 1
+    vm_boot_time = 3
+    vm_boot_timeout = 10
 
     def __init__(self, socket_path, crosvm_bin):
         self.socket_path = socket_path
@@ -16,12 +21,43 @@ class CrosvmLink:
         else:
             self.crosvm_bin = "crosvm"
 
+    def is_socket_alive(self):
+        if not os.path.exists(self.socket_path):
+            return False
+        try:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            client.connect(self.socket_path)
+            client.close()
+            return True
+        except Exception as e:
+            logger.warning(f"Socket {self.socket_path} is not alive: {e}")
+        return False
+
+    async def wait_for_boot(self):
+        for attempt in range(1, self.vm_boot_timeout + 1):
+            if self.is_socket_alive():
+                stat = os.stat(self.socket_path)
+                uptime = time.time() - stat.st_ctime
+                logger.info(f"VM uptime: {int(uptime)} seconds")
+                if uptime >= self.vm_boot_time:
+                    return True
+            else:
+                logger.warning(f"VM is not running")
+            await asyncio.sleep(1)
+        return False
+
     async def add_usb_device(self, device):
         dev_node = device.device_node
         i = 0
         while True:
             try:
                 logger.info(f"Adding USB device {dev_node} to {self.socket_path}")
+
+                # Crosvm requires the kernel to be booted before USB devices can be passed through
+                booted = await self.wait_for_boot()
+                if not booted:
+                    logger.error(f"VM is not booted while adding device {dev_node}")
+
                 result = subprocess.run([self.crosvm_bin, "usb", "attach", "00:00:00:00", dev_node, self.socket_path], capture_output=True, text=True)
                 if result.returncode != 0:
                     logger.error(f"Failed to add device {dev_node}, error code: {result.returncode}")
