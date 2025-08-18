@@ -4,7 +4,7 @@ import subprocess
 import os
 import time
 import socket
-from vhotplug.config import Config
+from vhotplug.usb import get_usb_info
 
 logger = logging.getLogger("vhotplug")
 
@@ -57,6 +57,14 @@ class CrosvmLink:
                 booted = await self.wait_for_boot()
                 if not booted:
                     logger.error(f"VM is not booted while adding device {dev_node}")
+
+                # Check if the device is already connected
+                devices = await self.usb_list()
+                usb_info = get_usb_info(device)
+                for index, vid, pid in devices:
+                    if vid == usb_info.vid and pid == usb_info.pid:
+                        logger.info(f"Device {vid}:{pid} is already attached to {self.socket_path}, skipping")
+                        return
 
                 result = subprocess.run([self.crosvm_bin, "usb", "attach", "00:00:00:00", dev_node, self.socket_path], capture_output=True, text=True)
                 if result.returncode != 0:
@@ -134,7 +142,7 @@ class CrosvmLink:
                         vid = data[i + 1]
                         pid = data[i + 2]
                         devices.append((index, vid, pid))
-                        logger.info(f"USB device {index}: {vid}:{pid}")
+                        logger.debug(f"USB device {index}: {vid}:{pid}")
 
         except Exception as e:
             logger.error(f"Failed to list USB devices: {e}")
