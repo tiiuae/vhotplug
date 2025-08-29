@@ -1,0 +1,35 @@
+name: Checks
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.12
+
+      - name: Setup venv
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pylint pytest
+
+      - name: Run pylint
+        run: |
+          source venv/bin/activate
+          pylint ./vhotplug
+
+      - name: Run pytest
+        run:  |
+          source venv/bin/activate
+          pytest ./vhotplug/test_config.py
