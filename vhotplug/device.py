@@ -13,28 +13,28 @@ logger = logging.getLogger("vhotplug")
 
 def log_device(device, level=logging.DEBUG):
     try:
-        logger.log(level, f"Device path: {device.device_path}")
-        logger.log(level, f"  sys_path: {device.sys_path}")
-        logger.log(level, f"  sys_name: {device.sys_name}")
-        logger.log(level, f"  sys_number: {device.sys_number}")
-        logger.log(level, f"  tags:")
+        logger.log(level, "Device path: %s", device.device_path)
+        logger.log(level, "  sys_path: %s", device.sys_path)
+        logger.log(level, "  sys_name: %s", device.sys_name)
+        logger.log(level, "  sys_number: %s", device.sys_number)
+        logger.log(level, "  tags:")
         for t in device.tags:
             if t:
-                logger.log(level, f"    {t}")
-        logger.log(level, f"  subsystem: {device.subsystem}")
-        logger.log(level, f"  driver: {device.driver}")
-        logger.log(level, f"  device_type: {device.device_type}")
-        logger.log(level, f"  device_node: {device.device_node}")
-        logger.log(level, f"  device_number: {device.device_number}")
-        logger.log(level, f"  is_initialized: {device.is_initialized}")
+                logger.log(level, "    %s", t)
+        logger.log(level, "  subsystem: %s", device.subsystem)
+        logger.log(level, "  driver: %s", device.driver)
+        logger.log(level, "  device_type: %s", device.device_type)
+        logger.log(level, "  device_node: %s", device.device_node)
+        logger.log(level, "  device_number: %s", device.device_number)
+        logger.log(level, "  is_initialized: %s", device.is_initialized)
         logger.log(level, "  Device properties:")
         for i in device.properties:
-            logger.log(level, f"    {i} = {device.properties[i]}")
+            logger.log(level, "    %s = %s", i, device.properties[i])
         logger.log(level, "  Device attributes:")
         for a in device.attributes.available_attributes:
-            logger.log(level, f"    {a}: {device.attributes.get(a)}")
+            logger.log(level, "    %s: %s", a, device.attributes.get(a))
     except AttributeError as e:
-        logger.warn(e)
+        logger.warning(e)
 
 def is_usb_device(device):
     return device.subsystem == "usb" and device.device_type == "usb_device"
@@ -88,13 +88,13 @@ def is_boot_device(context, device):
     for udevpart in context.list_devices(subsystem="block", DEVTYPE="partition"):
         parent = udevpart.find_parent("usb", "usb_device")
         if parent and parent.device_node == device.device_node:
-            logger.info(f"USB drive {device.device_node} has partition {udevpart.device_node}")
+            logger.info("USB drive %s has partition %s", device.device_node, udevpart.device_node)
             # Find mountpoints
             partitions = psutil.disk_partitions(all=True)
             for part in partitions:
                 if part.device == udevpart.device_node:
-                    logger.info(f"Found mountpoint {part.mountpoint} with filesystem {part.fstype}")
-                    logger.info(f"Options: {part.opts}")
+                    logger.info("Found mountpoint %s with filesystem %s", part.mountpoint, part.fstype)
+                    logger.info("Options: %s", part.opts)
                     if part.mountpoint == "/boot":
                         return True
     return False
@@ -105,9 +105,9 @@ async def attach_usb_device(context, config, device):
     if vm:
         vm_name = vm.get("name")
         vm_type = vm.get("type")
-        logger.info(f"Attaching to {vm_name} ({vm_type})")
+        logger.info("Attaching to %s (%s)", vm_name, vm_type)
         if is_boot_device(context, device):
-            logger.info(f"USB drive {device.device_node} is used as a boot device, skipping")
+            logger.info("USB drive %s is used as a boot device, skipping", device.device_node)
             return
         vm_socket = vm.get("socket")
         if vm_type == "qemu":
@@ -118,15 +118,15 @@ async def attach_usb_device(context, config, device):
             crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
             await crosvm.add_usb_device(device)
         else:
-            logger.error(f"Unknown VM type: {vm_type}")
+            logger.error("Unknown VM type: %s", vm_type)
     else:
-        logger.info(f"No VM found for {usb_info.vid}:{usb_info.pid}")
+        logger.info("No VM found for %s:%s", usb_info.vid, usb_info.pid)
 
 async def remove_usb_device(config, device):
     # Enumerate all VMs, find the one with the device attached and remove it
     for vm in config.get_all_vms():
         vm_name = vm.get("name")
-        logger.info(f"Checking {vm_name}")
+        logger.info("Checking %s", vm_name)
         vm_type = vm.get("type")
         vm_socket = vm.get("socket")
         if vm_type == "qemu":
@@ -134,7 +134,7 @@ async def remove_usb_device(config, device):
             ids = await qemu.usb()
             qemuid = qemu.id_for_usb(device)
             if qemuid in ids:
-                logger.info(f"Removing {qemuid} from {vm_name})")
+                logger.info("Removing %s from %s", qemuid, vm_name)
                 await qemu.remove_usb_device(device)
         elif vm_type == "crosvm":
             # Crosvm seems to automatically remove the device from the list so this code is not really used
@@ -143,20 +143,20 @@ async def remove_usb_device(config, device):
             devices = await crosvm.usb_list()
             for index, crosvm_vid, crosvm_pid in devices:
                 if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
-                    logger.info(f"Removing {index} from {vm_name})")
+                    logger.info("Removing %s from %s", index, vm_name)
                     await crosvm.remove_usb_device(index)
         else:
-            logger.error(f"Unsupported vm type: {vm_type}")
+            logger.error("Unsupported vm type: %s", vm_type)
 
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     vm_name = vm.get("name")
     vm_type = vm.get("type")
     if vm_type != "qemu":
-        logger.error(f"Evdev passthrough is not supported for {vm_name} with type {vm_type}")
+        logger.error("Evdev passthrough is not supported for %s with type %s", vm_name, vm_type)
         return
     vm_socket = vm.get("socket")
     bus = f"{busprefix}{pcieport}"
-    logger.info(f"Attaching evdev device to {vm_name} ({vm_socket}) on bus {bus}")
+    logger.info("Attaching evdev device to %s (%s) on bus %s", vm_name, vm_socket, bus)
     qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device, bus)
 
@@ -172,8 +172,8 @@ async def attach_connected_devices(context, config):
             bus = device.properties.get("ID_BUS")
             if is_input_device(device) and bus != "usb":
                 name = get_evdev_name(device)
-                logger.info(f"Found non-USB input device: {name}")
-                logger.info(f"Bus: {bus}, node: {device.device_node}")
+                logger.info("Found non-USB input device: %s", name)
+                logger.info("Bus: %s, node: %s", bus, device.device_node)
                 log_device(device)
                 if await test_grab(device):
                     logger.info("The device is grabbed by another process, it is likely already connected to the VM")
@@ -186,10 +186,10 @@ async def attach_connected_devices(context, config):
     for device in context.list_devices(subsystem='usb'):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
-            logger.info(f"Found USB device {usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name} {usb_info.product_name}): {device.device_node}")
-            logger.info(f'Device class: "{usb_info.device_class}", subclass: "{usb_info.device_subclass}", protocol: "{usb_info.device_protocol}", interfaces: "{usb_info.interfaces}"')
+            logger.info("Found USB device %s:%s (%s %s): %s", usb_info.vid, usb_info.pid, usb_info.vendor_name, usb_info.product_name, device.device_node)
+            logger.info('Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "{usb_info.interfaces}"', usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol)
             log_device(device)
             if is_usb_hub(usb_info.interfaces):
-                logger.info(f"USB device {usb_info.vid}:{usb_info.pid} is a USB hub, skipping")
+                logger.info("USB device %s:%s is a USB hub, skipping", usb_info.vid, usb_info.pid)
                 continue
             await attach_usb_device(context, config, device)

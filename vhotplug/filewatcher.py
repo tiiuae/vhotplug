@@ -1,6 +1,6 @@
 import os
-from inotify_simple import INotify, flags
 import logging
+from inotify_simple import INotify, flags
 
 logger = logging.getLogger("vhotplug")
 
@@ -21,7 +21,7 @@ class FileWatcher:
     def add_file(self, file_path):
         directory = os.path.dirname(file_path)
         filename = os.path.basename(file_path)
-        logger.info(f"Watching for {filename} in {directory}")
+        logger.info("Watching for %s in %s", filename, directory)
 
         if not self.directory_monitored(directory):
             watch_flags = flags.CREATE | flags.DELETE
@@ -32,8 +32,8 @@ class FileWatcher:
             }
 
         wd = self.get_directory_wd(directory)
-        if wd == None:
-            logger.error(f"Directory {directory} is not being monitored")
+        if wd is None:
+            logger.error("Directory %s is not being monitored", directory)
         else:
             self.watch_descriptors[wd]['files'].add(filename)
 
@@ -48,10 +48,10 @@ class FileWatcher:
                 if filename in self.watch_descriptors[event.wd]['files']:
                     file_path = os.path.join(directory, filename)
                     if event.mask & flags.CREATE:
-                        logger.info(f"VM {file_path} started")
+                        logger.info("VM %s started", file_path)
                         vm_restart_detected = True
                     if event.mask & flags.DELETE:
-                        logger.info(f"VM {file_path} stopped")
+                        logger.info("VM %s stopped", file_path)
         except BlockingIOError:
             pass
         return vm_restart_detected

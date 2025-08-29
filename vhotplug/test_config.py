@@ -21,7 +21,7 @@ def test_input_ignore_vid_pid():
             interfaces=":030101:030102:030000:"
         )
     )
-    assert vm == None
+    assert vm is None
 
 def test_ethernet_product_name():
     config = Config("config.json")
@@ -42,8 +42,8 @@ def test_ethernet_ignore_vid_pid():
             product_name="AX88179",
             interfaces=":ffff00:"
         )
-    )    
-    assert vm == None
+    )
+    assert vm is None
 
 def test_disabled():
     config = Config("config.json")
@@ -53,7 +53,7 @@ def test_disabled():
             pid="23a3"
         )
     )
-    assert vm == None
+    assert vm is None
 
 def test_audio():
     config = Config("config.json")
@@ -97,7 +97,7 @@ def test_ssd():
             interfaces=":080650:080662:"
         )
     )
-    assert vm == None
+    assert vm is None
 
 def test_hub():
     config = Config("config.json")
@@ -110,7 +110,7 @@ def test_hub():
             interfaces=":090000:",
         )
     )
-    assert vm == None
+    assert vm is None
 
 def test_bluetooth():
     config = Config("config.json")

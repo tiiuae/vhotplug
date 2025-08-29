@@ -1,8 +1,7 @@
-from qemu.qmp import QMPClient
 import logging
 import asyncio
 import re
-from vhotplug.config import Config
+from qemu.qmp import QMPClient, StateError, ConnectError, ExecuteError, ExecInterruptedError
 
 logger = logging.getLogger("vhotplug")
 
@@ -20,10 +19,9 @@ class QEMULink:
                 if status == "running":
                     logger.info("The VM is running")
                     break
-                else:
-                    logger.info(f"VM status: {status}")
-            except Exception as e:
-                logger.error(f"Failed to query VM status: {e}")
+                logger.info("VM status: %s", status)
+            except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+                logger.error("Failed to query VM status: %s", e)
             await asyncio.sleep(1)
 
     async def query_commands(self):
@@ -34,8 +32,8 @@ class QEMULink:
             logger.info("QMP Commands:")
             for x in res:
                 logger.info(x)
-        except Exception as e:
-            logger.error(f"Failed to get a list of commands: {e}")
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.error("Failed to get a list of commands: %s", e)
         finally:
             await qmp.disconnect()
 
@@ -45,15 +43,15 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("human-monitor-command", {"command-line": "info usb"})
-            logger.debug(f"Guest USB Devices:")
+            logger.debug("Guest USB Devices:")
             for line in res.splitlines():
-                logger.debug(f"{line}")
+                logger.debug("%s", line)
                 id_pattern = re.compile(r',\sID:\s(\w+)')
                 match = id_pattern.search(line)
                 if match:
                     ids.append(match.group(1))
-        except Exception as e:
-            logger.error(f"Failed to get a list of USB guest devices: {e}")
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.error("Failed to get a list of USB guest devices: %s", e)
         finally:
             await qmp.disconnect()
         return ids
@@ -63,11 +61,11 @@ class QEMULink:
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("human-monitor-command", {"command-line": "info usbhost"})
-            logger.info(f"Host USB Devices:")
+            logger.info("Host USB Devices:")
             for line in res.splitlines():
-                logger.info(f"{line}")
-        except Exception as e:
-            logger.error(f"Failed to get a list of USB host devices: {e}")
+                logger.info("%s", line)
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.error("Failed to get a list of USB host devices: %s", e)
         finally:
             await qmp.disconnect()
 
@@ -77,8 +75,8 @@ class QEMULink:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("query-status")
             return res['status']
-        except:
-            pass
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.debug("Failed to query status: %s", e)
         finally:
             await qmp.disconnect()
 
@@ -91,10 +89,10 @@ class QEMULink:
             for x in res:
                 for dev in x['devices']:
                     class_info = dev['class_info']
-                    logger.info(f"  Description: {class_info.get('desc')}. Class: {class_info.get('class')}. Bus: {dev['bus']}. Slot {dev['slot']}.")
+                    logger.info("  Description: %s. Class: %s. Bus: %s. Slot %s.", class_info.get('desc'), class_info.get('class'), dev['bus'], dev['slot'])
                     logger.debug(dev)
-        except Exception as e:
-            logger.error(f"Failed to query PCI: {e}")
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.error("Failed to query PCI: %s", e)
         finally:
             await qmp.disconnect()
 
@@ -112,29 +110,28 @@ class QEMULink:
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
-                logger.info(f"Adding USB device with id {qemuid} bus {busnum} dev {devnum} to {self.socket_path}")
+                logger.info("Adding USB device with id %s bus %s dev %s to %s", qemuid, busnum, devnum, self.socket_path)
                 res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": busnum, "hostaddr": devnum, "id": qemuid})
                 if res:
-                    logger.error(f"Failed to add device {qemuid}: {res}")
+                    logger.error("Failed to add device %s: %s", qemuid, res)
                 else:
-                    logger.info(f"Attached USB device: {qemuid}")
+                    logger.info("Attached USB device: %s", qemuid)
                 return
-            except Exception as e:
+            except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
                 if str(e).startswith("Duplicate device ID"):
-                    logger.info(f"USB device {qemuid} is already attached to the VM")
+                    logger.info("USB device %s is already attached to the VM", qemuid)
                     return
-                else:
-                    logger.error(f"Failed to add USB device {qemuid}: {e}")
-                    i += 1
+                logger.error("Failed to add USB device %s: %s", qemuid, e)
+                i += 1
             finally:
                 await qmp.disconnect()
 
             if i < self.vm_retry_count:
-                logger.info(f"Retrying")
+                logger.info("Retrying")
                 await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
-        logger.error(f"Failed to add USB device: {qemuid}")
+        logger.error("Failed to add USB device: %s", qemuid)
 
     async def add_usb_device_by_vid_pid(self, device, vid, pid):
         qemuid = self.id_for_usb(device)
@@ -143,29 +140,28 @@ class QEMULink:
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
-                logger.debug(f"Adding USB device {vid}:{pid} with id {qemuid} to {self.socket_path}")
+                logger.debug("Adding USB device %s:%s with id %s to %s", vid, pid, qemuid, self.socket_path)
                 res = await qmp.execute("device_add", {"driver": "usb-host", "vendorid": int(vid, 16), "productid": int(pid, 16), "id": qemuid})
                 if res:
-                    logger.error(f"Failed to add device {vid}:{pid} with id {qemuid}: {res}")
+                    logger.error("Failed to add device %s:%s with id %s: %s", vid, pid, qemuid, res)
                 else:
-                    logger.info(f"Attached USB device {vid}:{pid} with id {qemuid}")
+                    logger.info("Attached USB device %s:%s with id %s", vid, pid, qemuid)
                 return
-            except Exception as e:
+            except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
                 if str(e).startswith("Duplicate device ID"):
-                    logger.info(f"USB device {vid}:{pid} with id {qemuid} is already attached to the VM")
+                    logger.info("USB device %s:%s with id %s is already attached to the VM", vid, pid, qemuid)
                     return
-                else:
-                    logger.error(f"Failed to add USB device {vid}:{pid} with id {qemuid}: {e}")
-                    i += 1
+                logger.error("Failed to add USB device %s:%s with id %s: %s", vid, pid, qemuid, e)
+                i += 1
             finally:
                 await qmp.disconnect()
 
             if i < self.vm_retry_count:
-                logger.info(f"Retrying")
+                logger.info("Retrying")
                 await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
-        logger.error(f"Failed to add USB device {vid}:{pid} with id {qemuid}")
+        logger.error("Failed to add USB device %s:%s with id %s", vid, pid, qemuid)
 
     async def remove_usb_device(self, device):
         qmp = QMPClient()
@@ -174,14 +170,14 @@ class QEMULink:
             qemuid = self.id_for_usb(device)
             res = await qmp.execute("device_del", {"id": qemuid})
             if res:
-                logger.error(f"Failed to remove USB device {qemuid}: {res}")
+                logger.error("Failed to remove USB device %s: %s", qemuid, res)
             else:
-                logger.info(f"Removed USB device {qemuid} from {self.socket_path}")
-        except Exception as e:
+                logger.info("Removed USB device %s from %s", qemuid, self.socket_path)
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
             if str(e) == f"Device '{qemuid}' not found":
-                logger.debug(f"Failed to remove USB device {qemuid} from {self.socket_path}: {e}")
+                logger.debug("Failed to remove USB device %s from %s: %s", qemuid, self.socket_path, e)
             else:
-                logger.error(f"Failed to remove USB device {qemuid} from {self.socket_path}: {e}")
+                logger.error("Failed to remove USB device %s from %s: %s", qemuid, self.socket_path, e)
         finally:
             await qmp.disconnect()
 
@@ -192,46 +188,46 @@ class QEMULink:
             qemuid = device.sys_name
             if idindex > 0:
                 qemuid += f"-{idindex}"
-            logger.debug(f"Adding evdev device {device.device_node} with id {qemuid} to bus {bus}")
+            logger.debug("Adding evdev device %s with id %s to bus %s", device.device_node, qemuid, bus)
             qmp = QMPClient()
             try:
                 await qmp.connect(self.socket_path)
                 res = await qmp.execute("device_add", {"driver": "virtio-input-host-pci", "evdev": device.device_node, "id": qemuid, "bus": bus})
                 if res:
-                    logger.error(f"Failed to add evdev device to bus {bus}: {res}")
+                    logger.error("Failed to add evdev device to bus %s: %s", bus, res)
                 else:
-                    logger.info(f"Attached evdev device {device.device_node} to bus {bus}")
+                    logger.info("Attached evdev device %s to bus %s", device.device_node, bus)
                     return
-            except Exception as e:
+            except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
                 if str(e).startswith("Duplicate device ID"):
                     idindex += 1
                 elif str(e).endswith("Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")
                     return
                 else:
-                    logger.error(f"Failed to add evdev device to bus {bus}: {e}")
+                    logger.error("Failed to add evdev device to bus %s: %s", bus, e)
                     i += 1
             finally:
                 await qmp.disconnect()
 
             if i < self.vm_retry_count:
-                logger.info(f"Retrying")
+                logger.info("Retrying")
                 await asyncio.sleep(self.vm_retry_timeout)
             else:
                 break
-        logger.error(f"Failed to add evdev device: {device.device_node}")
+        logger.error("Failed to add evdev device: %s", device.device_node)
 
     async def remove_evdev_device(self, device):
-        logger.debug(f"Removing evdev device {device.device_node} with id {device.sys_name}")
+        logger.debug("Removing evdev device %s with id %s", device.device_node, device.sys_name)
         qmp = QMPClient()
         try:
             await qmp.connect(self.socket_path)
             res = await qmp.execute("device_del", {"id": device.sys_name})
             if res:
-                logger.error(f"Failed to remove evdev device: {res}")
+                logger.error("Failed to remove evdev device: %s", res)
             else:
-                logger.debug(f"Removed evdev device {device.sys_name}")
-        except Exception as e:
-            logger.error(f"Failed to remove evdev device: {e}")
+                logger.debug("Removed evdev device %s", device.sys_name)
+        except (StateError, ConnectError, ExecuteError, ExecInterruptedError) as e:
+            logger.error("Failed to remove evdev device: %s", e)
         finally:
             await qmp.disconnect()
