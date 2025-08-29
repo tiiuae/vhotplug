@@ -1,8 +1,8 @@
-import pyudev
 import logging
 import asyncio
 import argparse
 import os
+import pyudev
 from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_devices
 from vhotplug.config import Config
 from vhotplug.filewatcher import FileWatcher
@@ -11,26 +11,26 @@ logger = logging.getLogger("vhotplug")
 
 async def device_event(context, config, device):
     if device.action == 'add':
-        logger.debug(f"Device plugged: {device.sys_name}.")
-        logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
+        logger.debug("Device plugged: %s", device.sys_name)
+        logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
         log_device(device)
         if is_usb_device(device):
             usb_info = get_usb_info(device)
-            logger.info(f"USB device {usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name} {usb_info.product_name}) connected: {device.device_node}")
-            logger.info(f'Device class: "{usb_info.device_class}", subclass: "{usb_info.device_subclass}", protocol: "{usb_info.device_protocol}", interfaces: "{usb_info.interfaces}"')
+            logger.info("USB device %s:%s (%s %s) connected: %s", usb_info.vid, usb_info.pid, usb_info.vendor_name, usb_info.product_name, device.device_node)
+            logger.info('Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"', usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol, usb_info.interfaces)
             await attach_usb_device(context, config, device)
     elif device.action == 'remove':
-        logger.debug(f"Device unplugged: {device.sys_name}.")
-        logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
+        logger.debug("Device unplugged: %s", device.sys_name)
+        logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
         log_device(device)
         if is_usb_device(device):
-            logger.info(f"USB device disconnected: {device.device_node}")
+            logger.info("USB device disconnected: %s", device.device_node)
             await remove_usb_device(config, device)
     elif device.action == 'change':
-        logger.debug(f"Device changed: {device.sys_name}.")
-        logger.debug(f"Subsystem: {device.subsystem}, path: {device.device_path}")
+        logger.debug("Device changed: %s", device.sys_name)
+        logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
         if device.subsystem == 'power_supply':
-            logger.info(f"Power supply device {device.sys_name} changed, this may indicate a system resume")
+            logger.info("Power supply device %s changed, this may indicate a system resume", device.sys_name)
 
 async def async_main():
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
@@ -48,7 +48,7 @@ async def async_main():
         logger.setLevel(logging.INFO)
 
     if not os.path.exists(args.config):
-        logger.error(f"Configuration file {args.config} not found")
+        logger.error("Configuration file %s not found", args.config)
         return
 
     config = Config(args.config)
@@ -69,10 +69,10 @@ async def async_main():
     try:
         while True:
             device = monitor.poll(timeout=1)
-            if device != None:
+            if device is not None:
                 await device_event(context, config, device)
-            if watcher.detect_restart() == True and args.attach_connected:
-                    await attach_connected_devices(context, config)
+            if watcher.detect_restart() and args.attach_connected:
+                await attach_connected_devices(context, config)
 
     except KeyboardInterrupt:
         logger.info("Ctrl+C")
