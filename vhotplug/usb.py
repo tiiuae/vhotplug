@@ -30,7 +30,6 @@ def parse_usb_interfaces(interfaces):
         try:
             interfaces = interfaces.strip(':')
             for interface in interfaces.split(':'):
-                l = len(interface)
                 if len(interface) >= 6:
                     usb_class = interface[:2]
                     usb_subclass = interface[2:4]
@@ -40,8 +39,8 @@ def parse_usb_interfaces(interfaces):
                         "subclass": int(usb_subclass, 16),
                         "protocol": int(usb_protocol, 16)
                     })
-        except Exception as e:
-            logger.error(f"Failed to parse USB interfaces: {e}")
+        except (ValueError, TypeError) as e:
+            logger.error("Failed to parse USB interfaces: %s", e)
     return result
 
 def is_usb_hub(interfaces):
