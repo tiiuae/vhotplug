@@ -1,32 +1,17 @@
 {
-    "vms": [
+    "usbPassthrough": [
         {
-            "name": "vm1",
-            "type": "qemu",
-            "socket": "/tmp/qmp-socket1",
-            "usbPassthrough": [
+            "description": "Devices for VM1",
+            "targetVm": "vm1",
+            "allow": [
                 {
                     "interfaceClass": 3,
                     "interfaceProtocol": 2,
-                    "description": "HID Mouse",
-                    "ignore": [
-                        {
-                            "vendorId": "046d",
-                            "productId": "c52b",
-                            "description": "Logitech, Inc. Unifying Receiver"
-                        }
-                    ]
+                    "description": "HID Mouse"
                 },
                 {
                     "productName": ".*ethernet.*",
-                    "description": "Ethernet devices",
-                    "ignore": [
-                        {
-                            "vendorId": "0b95",
-                            "productId": "1790",
-                            "description": "AX88179 Gigabit Ethernet"
-                        }
-                    ]
+                    "description": "Ethernet devices"
                 },
                 {
                     "vendorId": "067b",
@@ -36,35 +21,76 @@
                 },
                 {
                     "interfaceClass": 1,
-                    "description": "Audio",
-                    "ignore": [
-                        {
-                            "interfaceClass": 14,
-                            "description": "Video (USB Webcams)"
-                        }
-                    ]
+                    "description": "Audio"
                 }
             ],
-            "evdevPassthrough": {
-                "enable": false,
-                "pcieBusPrefix": "ep"
-            }
-        },
-        {
-            "name": "vm2",
-            "type": "crosvm",
-            "socket": "/tmp/crosvm-socket1",
-            "crosvm": "/usr/local/bin/crosvm",
-            "usbPassthrough": [
+            "deny": [
+                {
+                    "vendorId": "046d",
+                    "productId": "c52b",
+                    "description": "Logitech, Inc. Unifying Receiver"
+                },
+                {
+                    "vendorId": "0b95",
+                    "productId": "1790",
+                    "description": "AX88179 Gigabit Ethernet"
+                },
                 {
                     "interfaceClass": 14,
                     "description": "Video (USB Webcams)"
-                },
+                }
+            ]
+        },
+        {
+            "description": "Devices for VM2",
+            "targetVm": "vm2",
+            "allow": [
                 {
                     "deviceClass": 224,
                     "description": "Wireless Controller"
                 }
             ]
+        },
+        {
+            "description": "Devices for Multiple VMs",
+            "allowedVms": [
+                "vm1",
+                "vm2"
+            ],
+            "allow": [
+                {
+                    "interfaceClass": 14,
+                    "description": "Video (USB Webcams)"
+                },
+                {
+                    "vendorId": "1050",
+                    "productId": "0407",
+                    "description": "Yubikey"
+                }
+            ]
         }
-    ]
+    ],
+    "evdevPassthrough": {
+        "pcieBusPrefix": "ep",
+        "targetVm": "vm1"
+    },
+    "vms": [
+        {
+            "name": "vm1",
+            "type": "qemu",
+            "socket": "/tmp/qmp-socket1"
+        },
+        {
+            "name": "vm2",
+            "type": "crosvm",
+            "socket": "/tmp/crosvm-socket1"
+        }
+    ],
+    "general" : {
+        "api": {
+            "port": 2000,
+            "transport": "tcp"
+        },
+        "crosvm": "/usr/local/bin/crosvm"
+    }
 }

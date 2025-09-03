@@ -26,11 +26,10 @@ Each rule can match devices using one or more of the following parameters:
 - deviceSubclass — USB device subclass (e.g., 1)
 - deviceProtocol — USB device protocol (e.g., 1)
 
-The same parameters can also be used in ignore rules to explicitly exclude certain devices from being passed through.
-Only the fields present in a rule are used for matching. If multiple rules match a device, the first match is used.
+The same parameters can be used in allow and deny rule sets. Only the fields present in a rule are used for matching. If multiple rules match a device, the first match is used.
 
 Note: Many USB devices are composite devices, meaning they expose multiple interfaces. When matching against interfaceClass, interfaceSubclass and interfaceProtocol, it is sufficient for at least one interface to match the rule.
-In practice, matching by interfaces is often more reliable than using device_class, since many real-world USB devices leave the device-level class fields unset or use generic values like 0 (defined at the interface level instead).
+In practice, matching by interfaces is often more reliable than using deviceClass, since many real-world USB devices leave the device-level class fields unset or use generic values like 0 (defined at the interface level instead).
 
 # Example
 
@@ -61,34 +60,19 @@ options:
 
 ```json
 {
-    "vms": [
+    "usbPassthrough": [
         {
-            "name": "vm1",
-            "type": "qemu",
-            "socket": "/tmp/qmp-socket1",
-            "usbPassthrough": [
+            "description": "Devices for VM1",
+            "targetVm": "vm1",
+            "allow": [
                 {
                     "interfaceClass": 3,
                     "interfaceProtocol": 2,
                     "description": "HID Mouse",
-                    "ignore": [
-                        {
-                            "vendorId": "046d",
-                            "productId": "c52b",
-                            "description": "Logitech, Inc. Unifying Receiver"
-                        }
-                    ]
                 },
                 {
                     "productName": ".*ethernet.*",
                     "description": "Ethernet devices",
-                    "ignore": [
-                        {
-                            "vendorId": "0b95",
-                            "productId": "1790",
-                            "description": "AX88179 Gigabit Ethernet"
-                        }
-                    ]
                 },
                 {
                     "vendorId": "067b",
@@ -97,10 +81,30 @@ options:
                     "disable": true
                 }
             ],
-            "evdevPassthrough": {
-                "enable": false,
-                "pcieBusPrefix": "ep"
-            }
+            "deny": [
+                {
+                    "vendorId": "046d",
+                    "productId": "c52b",
+                    "description": "Logitech, Inc. Unifying Receiver"
+                },
+                {
+                    "vendorId": "0b95",
+                    "productId": "1790",
+                    "description": "AX88179 Gigabit Ethernet"
+                }
+            ]
+        }
+    ],
+    "evdevPassthrough": {
+        "disable": true,
+        "pcieBusPrefix": "ep",
+        "targetVm": "vm1"
+    },
+    "vms": [
+        {
+            "name": "vm1",
+            "type": "qemu",
+            "socket": "/tmp/qmp-socket1"
         }
     ]
 }

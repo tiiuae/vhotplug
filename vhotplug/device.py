@@ -99,26 +99,29 @@ def is_boot_device(context, device):
                         return True
     return False
 
-async def attach_usb_device(context, config, device):
+async def attach_usb_device(config, device):
     usb_info = get_usb_info(device)
-    vm = config.vm_for_usb_device(usb_info)
-    if vm:
-        vm_name = vm.get("name")
-        vm_type = vm.get("type")
-        logger.info("Attaching to %s (%s)", vm_name, vm_type)
-        if is_boot_device(context, device):
-            logger.info("USB drive %s is used as a boot device, skipping", device.device_node)
-            return
-        vm_socket = vm.get("socket")
-        if vm_type == "qemu":
-            qemu = QEMULink(vm_socket)
-            #await qemu.add_usb_device_by_vid_pid(device, vid, pid)
-            await qemu.add_usb_device(device)
-        elif vm_type == "crosvm":
-            crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
-            await crosvm.add_usb_device(device)
-        else:
-            logger.error("Unknown VM type: %s", vm_type)
+    res = config.vm_for_usb_device(usb_info)
+    if res:
+        target_vm = res[0]
+        if target_vm:
+            vm_name = target_vm.get("name")
+            vm_type = target_vm.get("type")
+            logger.info("Attaching to %s (%s)", vm_name, vm_type)
+            vm_socket = target_vm.get("socket")
+            if vm_type == "qemu":
+                qemu = QEMULink(vm_socket)
+                #await qemu.add_usb_device_by_vid_pid(device, vid, pid)
+                await qemu.add_usb_device(device)
+            elif vm_type == "crosvm":
+                crosvm = CrosvmLink(vm_socket, config.config.get("general", {}).get("crosvm"))
+                await crosvm.add_usb_device(device)
+            else:
+                logger.error("Unknown VM type: %s", vm_type)
+
+        allowed_vms = res[1]
+        if allowed_vms:
+            logger.info("Found multiple VMs for %s:%s, sending an API request", usb_info.vid, usb_info.pid)
     else:
         logger.info("No VM found for %s:%s", usb_info.vid, usb_info.pid)
 
@@ -192,4 +195,4 @@ async def attach_connected_devices(context, config):
             if is_usb_hub(usb_info.interfaces):
                 logger.info("USB device %s:%s is a USB hub, skipping", usb_info.vid, usb_info.pid)
                 continue
-            await attach_usb_device(context, config, device)
+            await attach_usb_device(config, device)
