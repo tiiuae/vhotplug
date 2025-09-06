@@ -1,17 +1,14 @@
 import logging
 import asyncio
 import subprocess
-import os
-import time
-import socket
-from vhotplug.usb import get_usb_info
+from vhotplug.vmm import wait_for_boot_crosvm
 
 logger = logging.getLogger("vhotplug")
 
 class CrosvmLink:
     vm_retry_count = 5
     vm_retry_timeout = 1
-    vm_boot_time = 3
+    vm_wait_after_boot = 3
     vm_boot_timeout = 10
 
     def __init__(self, socket_path, crosvm_bin):
@@ -21,47 +18,21 @@ class CrosvmLink:
         else:
             self.crosvm_bin = "crosvm"
 
-    def is_socket_alive(self):
-        if not os.path.exists(self.socket_path):
-            return False
-        try:
-            client = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-            client.connect(self.socket_path)
-            client.close()
-            return True
-        except OSError as e:
-            logger.warning("Socket %s is not alive: %s", self.socket_path, e)
-        return False
-
-    async def wait_for_boot(self):
-        for attempt in range(1, self.vm_boot_timeout + 1):
-            if self.is_socket_alive():
-                stat = os.stat(self.socket_path)
-                uptime = time.time() - stat.st_ctime
-                logger.info("VM uptime: %s seconds, attempt %s", int(uptime), attempt)
-                if uptime >= self.vm_boot_time:
-                    return True
-            else:
-                logger.warning("VM is not running")
-            await asyncio.sleep(1)
-        return False
-
     # pylint: disable = too-many-branches
-    async def add_usb_device(self, device):
-        dev_node = device.device_node
+    async def add_usb_device(self, usb_info):
+        dev_node = usb_info.device_node
+
+        # Crosvm requires the kernel to be booted before USB devices can be passed through
+        if not wait_for_boot_crosvm(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot):
+            logger.warning("VM is not booted while adding device %s", dev_node)
+
         i = 0
         while True:
             try:
                 logger.info("Adding USB device %s to %s", dev_node, self.socket_path)
 
-                # Crosvm requires the kernel to be booted before USB devices can be passed through
-                booted = await self.wait_for_boot()
-                if not booted:
-                    logger.error("VM is not booted while adding device %s", dev_node)
-
                 # Check if the device is already connected
                 devices = await self.usb_list()
-                usb_info = get_usb_info(device)
                 for index, vid, pid in devices:
                     if vid == usb_info.vid and pid == usb_info.pid:
                         logger.info("Device %s:%s is already attached to %s, skipping", vid, pid, self.socket_path)
@@ -69,9 +40,9 @@ class CrosvmLink:
 
                 result = subprocess.run([self.crosvm_bin, "usb", "attach", "00:00:00:00", dev_node, self.socket_path], capture_output=True, text=True, check=False)
                 if result.returncode != 0:
-                    logger.error("Failed to add device %s, error code: %s", dev_node, result.returncode)
-                    logger.error("Out: %s", result.stdout)
-                    logger.error("Err: %s", result.stderr)
+                    logger.warning("Failed to add device %s, error code: %s", dev_node, result.returncode)
+                    logger.warning("Out: %s", result.stdout)
+                    logger.warning("Err: %s", result.stderr)
                 else:
                     r = result.stdout.split()
                     if r[0] == "ok":
@@ -88,11 +59,11 @@ class CrosvmLink:
                         for index, _, _ in devices:
                             await self.remove_usb_device(index)
                     else:
-                        logger.error("Unexpected result: %s", r[0])
-                        logger.error("Out: %s", result.stdout)
-                        logger.error("Err: %s", result.stderr)
+                        logger.warning("Unexpected result: %s", r[0])
+                        logger.warning("Out: %s", result.stdout)
+                        logger.warning("Err: %s", result.stderr)
             except OSError as e:
-                logger.error("Failed to attach USB device %s: %s", dev_node, e)
+                logger.warning("Failed to attach USB device %s: %s", dev_node, e)
 
             if i < self.vm_retry_count:
                 logger.info("Retrying")
@@ -101,6 +72,7 @@ class CrosvmLink:
             else:
                 break
         logger.error("Failed to add USB device %s after %s attempts", dev_node, i)
+        raise RuntimeError("Timeout")
 
     async def remove_usb_device(self, dev_id):
         try:
@@ -110,16 +82,18 @@ class CrosvmLink:
                 logger.error("Failed to detach USB device, error code: %s", result.returncode)
                 logger.error("Out: %s", result.stdout)
                 logger.error("Err: %s", result.stderr)
-            else:
-                r = result.stdout.split()
-                if r[0] == "ok":
-                    logger.info("Detached USB device %s", dev_id)
-                else:
-                    logger.error("Unexpected result: %s", r[0])
-                    logger.error("Out: %s", result.stdout)
-                    logger.error("Err: %s", result.stderr)
+                raise RuntimeError(result.returncode)
+            r = result.stdout.split()
+            if r[0] != "ok":
+                logger.error("Unexpected result: %s", r[0])
+                logger.error("Out: %s", result.stdout)
+                logger.error("Err: %s", result.stderr)
+                raise RuntimeError(r[0])
+            logger.info("Detached USB device %s", dev_id)
+            return
         except OSError as e:
             logger.error("Failed to detach USB device: %s", e)
+            raise RuntimeError(e) from None
 
     async def usb_list(self):
         devices = []

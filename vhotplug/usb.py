@@ -4,6 +4,7 @@ import logging
 logger = logging.getLogger("vhotplug")
 
 class USBInfo(NamedTuple):
+    device_node: Optional[str] = None
     vid: Optional[str] = None
     pid: Optional[str] = None
     vendor_name: Optional[str] = None
@@ -12,17 +13,48 @@ class USBInfo(NamedTuple):
     device_class: Optional[int] = None
     device_subclass: Optional[int] = None
     device_protocol: Optional[int] = None
+    busnum: Optional[int] = None
+    devnum: Optional[int] = None
+
+    def to_dict(self):
+        return {
+            "device_node": self.device_node,
+            "vid": self.vid,
+            "pid": self.pid,
+            "vendor_name": self.vendor_name,
+            "product_name": self.product_name,
+            "interfaces": self.interfaces,
+            "device_class": self.device_class,
+            "device_subclass": self.device_subclass,
+            "device_protocol": self.device_protocol,
+            "busnum": self.busnum,
+            "devnum": self.devnum
+        }
+
+    def dev_id(self):
+        return f"usb{self.busnum}{self.devnum}"
+
+def _bytes_to_int(data):
+    if not data:
+        return None
+    try:
+        return int(data.decode().strip(), 16)
+    except ValueError:
+        return None
 
 def get_usb_info(device) -> USBInfo:
+    device_node  = device.device_node
     vid = device.properties.get("ID_VENDOR_ID")
     pid = device.properties.get("ID_MODEL_ID")
     vendor_name = device.properties.get("ID_VENDOR_FROM_DATABASE") or device.properties.get("ID_VENDOR")
     product_name = device.properties.get("ID_MODEL_FROM_DATABASE") or device.properties.get("ID_MODEL")
     interfaces = device.properties.get("ID_USB_INTERFACES")
-    device_class = int(device.attributes.get("bDeviceClass").decode().strip(), 16)
-    device_subclass = int(device.attributes.get("bDeviceSubClass").decode().strip(), 16)
-    device_protocol = int(device.attributes.get("bDeviceProtocol").decode().strip(), 16)
-    return USBInfo(vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol)
+    device_class = _bytes_to_int(device.attributes.get("bDeviceClass"))
+    device_subclass = _bytes_to_int(device.attributes.get("bDeviceSubClass"))
+    device_protocol = _bytes_to_int(device.attributes.get("bDeviceProtocol"))
+    busnum = int(device.properties.get("BUSNUM"))
+    devnum = int(device.properties.get("DEVNUM"))
+    return USBInfo(device_node, vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol, busnum, devnum)
 
 def parse_usb_interfaces(interfaces):
     result = []

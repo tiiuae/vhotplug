@@ -8,7 +8,7 @@ def test_input():
             interfaces=":030101:030102:030000:"
         )
     )
-    assert vm[0].get("name") == "vm1"
+    assert vm[0] == "vm1"
 
 def test_input_ignore_vid_pid():
     config = Config("config.json")
@@ -30,7 +30,7 @@ def test_ethernet_product_name():
             product_name="Some ethernet device"
         )
     )
-    assert vm[0].get("name") == "vm1"
+    assert vm[0] == "vm1"
 
 def test_ethernet_ignore_vid_pid():
     config = Config("config.json")
@@ -62,7 +62,7 @@ def test_audio():
             interfaces=":010100:"
         )
     )
-    assert vm[0].get("name") == "vm1"
+    assert vm[0] == "vm1"
 
 def test_audio_and_video():
     config = Config("config.json")
@@ -126,4 +126,4 @@ def test_bluetooth():
             interfaces=":e00101:",
         )
     )
-    assert vm[0].get("name") == "vm2"
+    assert vm[0] == "vm2"

@@ -29,7 +29,7 @@ class Config:
         vid_match = rule_vid and usb_info.vid and usb_info.vid.casefold() == rule_vid.casefold()
         pid_match = rule_pid and usb_info.pid and usb_info.pid.casefold() == rule_pid.casefold()
         if vid_match and pid_match:
-            logger.info("Match by vendor id / product id, description: %s", rule_description)
+            logger.debug("Match by vendor id / product id, description: %s", rule_description)
             return True
 
         # Match by vendor name / product name
@@ -39,7 +39,7 @@ class Config:
         vname_match = rule_vname and re.match(rule_vname, usb_info.vendor_name or "", re.IGNORECASE)
         pname_match = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
         if vname_match or pname_match:
-            logger.info("Match by vendor name / product name, description: %s", rule_description)
+            logger.debug("Match by vendor name / product name, description: %s", rule_description)
             return True
 
         # Match by device class, subclass and protocol
@@ -51,7 +51,7 @@ class Config:
             subclass_match = not rule_device_subclass or rule_device_subclass == usb_info.device_subclass
             protocol_match = not rule_device_protocol or rule_device_protocol == usb_info.device_protocol
             if subclass_match and protocol_match:
-                logger.info("Match by USB device class, description: %s", rule_description)
+                logger.debug("Match by USB device class, description: %s", rule_description)
                 return True
 
         # Match by interface class, subclass and protocol
@@ -69,7 +69,7 @@ class Config:
                 subclass_match = not rule_interface_subclass or rule_interface_subclass == interface_subclass
                 protocol_match = not rule_interface_protocol or rule_interface_protocol == interface_protocol
                 if subclass_match and protocol_match:
-                    logger.info("Match by USB interface class, description: %s", rule_description)
+                    logger.debug("Match by USB interface class, description: %s", rule_description)
                     return True
         return False
 
@@ -103,7 +103,7 @@ class Config:
                         logger.info("Found allowed VMs %s for %s", allowed_vms, usb_dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
-                    return (self.get_vm(target_vm), allowed_vms)
+                    return (target_vm, allowed_vms)
 
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for USB device in the configuration file: %s", e)
@@ -131,3 +131,6 @@ class Config:
             if vm.get("name") == vm_name:
                 return vm
         return None
+
+    def api_enabled(self):
+        return self.config.get("general", {}).get("api", {}).get("enable", False)

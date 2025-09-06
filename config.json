@@ -88,6 +88,8 @@
     ],
     "general" : {
         "api": {
+            "enable": true,
+            "host": "127.0.0.1",
             "port": 2000,
             "transport": "tcp"
         },
