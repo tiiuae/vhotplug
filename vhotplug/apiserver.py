@@ -3,19 +3,16 @@ import threading
 import json
 import logging
 import asyncio
-import pyudev
-from vhotplug.device import get_usb_devices, vm_for_usb_device, attach_usb_device, remove_usb_device
-from vhotplug.usb import get_usb_info
+from vhotplug.device import get_usb_devices, attach_existing_usb_device, remove_existing_usb_device
 
 logger = logging.getLogger("vhotplug")
 
 class APIServer:
     # pylint: disable = too-many-instance-attributes
-    def __init__(self, config, context, loop):
+    def __init__(self, app_context, loop):
         self.loop = loop
-        self.config = config
-        self.context = context
-        api_config = config.config.get("general", {}).get("api", {})
+        self.app_context = app_context
+        api_config = self.app_context.config.config.get("general", {}).get("api", {})
         self.transport = api_config.get("transport", "vsock")
         self.host = api_config.get("host", "127.0.0.1")
         self.port = api_config.get("port", 2000)
@@ -127,62 +124,47 @@ class APIServer:
     # pylint: disable = too-many-return-statements
     def handle_message(self, client_sock, client_addr, msg):
         msg_name = msg.get("action")
-        if msg_name == "enable_notifications":
-            logger.info("Enabling notifications for %s", client_addr)
-            with self.clients_lock:
-                self.notify_clients.append(client_sock)
-            return {"result": "ok"}
-        if msg_name == "usb_list":
-            logger.info("API request usb list from %s", client_addr)
-            return {"result": "ok", "usb_devices": get_usb_devices(self.context, self.config)}
-        if msg_name == "usb_attach":
-            logger.info("API request usb attach from %s", client_addr)
-            try:
-                device_node = msg.get("device_node")
-                vm_name = msg.get("vm")
-                logger.info("Request to attach %s to %s", device_node, vm_name)
 
-                # Find USB device in the system
-                device = pyudev.Devices.from_device_file(self.context, device_node)
-                usb_info = get_usb_info(device)
-
-                # Check that target VM is allowed for this device
-                vm_coro = vm_for_usb_device(self.context, self.config, self, usb_info, vm_name, False)
-                future = asyncio.run_coroutine_threadsafe(vm_coro, self.loop)
-                vm = future.result()
-                if not vm:
-                    raise RuntimeError("VM not found")
-
-                # Attach
-                coro = attach_usb_device(self.config, self, usb_info, vm)
-                future = asyncio.run_coroutine_threadsafe(coro, self.loop)
-                future.result()
+        match msg_name:
+            case "enable_notifications":
+                logger.info("Enabling notifications for %s", client_addr)
+                with self.clients_lock:
+                    self.notify_clients.append(client_sock)
                 return {"result": "ok"}
-            except pyudev.DeviceNotFoundError:
-                raise RuntimeError("USB device not found") from None
-            except RuntimeError as e:
-                logger.error("Failed to attach device: %s", e)
-                return {"result": "failed", "error": str(e)}
-        if msg_name == "usb_detach":
-            logger.info("API request usb detach from %s", client_addr)
-            try:
-                device_node = msg.get("device_node")
-                logger.info("Request to detach %s", device_node)
 
-                # Find USB device in the system
-                device = pyudev.Devices.from_device_file(self.context, device_node)
-                usb_info = get_usb_info(device)
+            case "usb_list":
+                logger.info("API request usb list from %s", client_addr)
+                return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
 
-                # Remove
-                coro = remove_usb_device(self.config, usb_info, self)
-                future = asyncio.run_coroutine_threadsafe(coro, self.loop)
-                future.result()
-                return {"result": "ok"}
-            except pyudev.DeviceNotFoundError:
-                raise RuntimeError("USB device not found") from None
-            except RuntimeError as e:
-                logger.error("Failed to detach device: %s", e)
-                return {"result": "failed", "error":  str(e)}
+            case "usb_attach":
+                logger.info("API request usb attach from %s", client_addr)
+                try:
+                    device_node = msg.get("device_node")
+                    selected_vm = msg.get("vm")
+                    logger.info("Request to attach %s to %s", device_node, selected_vm)
+                    asyncio.run_coroutine_threadsafe(
+                        attach_existing_usb_device(self.app_context, device_node, selected_vm),
+                        self.loop,
+                    ).result()
+                    return {"result": "ok"}
+                except RuntimeError as e:
+                    logger.error("Failed to attach device: %s", e)
+                    return {"result": "failed", "error": str(e)}
 
-        logger.warning("API server unknown message: %s", msg_name)
-        return {"result": "failed", "error": f"Unknown message: {msg_name}"}
+            case "usb_detach":
+                logger.info("API request usb detach from %s", client_addr)
+                try:
+                    device_node = msg.get("device_node")
+                    logger.info("Request to detach %s", device_node)
+                    asyncio.run_coroutine_threadsafe(
+                        remove_existing_usb_device(self.app_context, device_node),
+                        self.loop,
+                    ).result()
+                    return {"result": "ok"}
+                except RuntimeError as e:
+                    logger.error("Failed to detach device: %s", e)
+                    return {"result": "failed", "error": str(e)}
+
+            case _:
+                logger.warning("API server unknown message: %s", msg_name)
+                return {"result": "failed", "error": f"Unknown message: {msg_name}"}

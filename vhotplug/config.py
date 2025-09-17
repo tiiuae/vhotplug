@@ -75,7 +75,7 @@ class Config:
 
     def vm_for_usb_device(self, usb_info):
         try:
-            usb_dev_name = f"{usb_info.vid}:{usb_info.pid} ({usb_info.vendor_name}:{usb_info.product_name})"
+            usb_dev_name = usb_info.friendly_name()
             logger.debug("Searching for a VM for %s", usb_dev_name)
 
             for usb_rule in self.config.get("usbPassthrough", []):
@@ -98,16 +98,16 @@ class Config:
                     target_vm = usb_rule.get("targetVm")
                     allowed_vms = usb_rule.get("allowedVms")
                     if target_vm:
-                        logger.info("Found VM %s for %s", target_vm, usb_dev_name)
+                        logger.debug("Found VM %s for %s", target_vm, usb_dev_name)
                     elif allowed_vms:
-                        logger.info("Found allowed VMs %s for %s", allowed_vms, usb_dev_name)
+                        logger.debug("Found allowed VMs %s for %s", allowed_vms, usb_dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
                     return (target_vm, allowed_vms)
 
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for USB device in the configuration file: %s", e)
-        return None
+        return (None, None)
 
     def vm_for_evdev_devices(self):
         try:
@@ -134,3 +134,9 @@ class Config:
 
     def api_enabled(self):
         return self.config.get("general", {}).get("api", {}).get("enable", False)
+
+    def persistency_enabled(self):
+        return self.config.get("general", {}).get("persistency", True)
+
+    def state_path(self):
+        return self.config.get("general", {}).get("statePath", "/var/lib/vhotplug/vhotplug.state")

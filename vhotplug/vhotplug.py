@@ -2,15 +2,26 @@ import logging
 import asyncio
 import argparse
 import os
+from dataclasses import dataclass
+from typing import Optional
 import pyudev
-from vhotplug.device import vm_for_usb_device, attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_devices
+from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_devices
 from vhotplug.config import Config
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.apiserver import APIServer
+from vhotplug.usbstate import USBState
 
 logger = logging.getLogger("vhotplug")
 
-async def device_event(context, config, device, api_server):
+@dataclass
+class AppContext:
+    config: object
+    udev_monitor: object
+    udev_context: object
+    usb_state: object
+    api_server: Optional[object] = None
+
+async def device_event(app_context, device):
     if device.action == 'add':
         logger.debug("Device plugged: %s", device.sys_name)
         logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
@@ -20,9 +31,7 @@ async def device_event(context, config, device, api_server):
             logger.info("USB device %s:%s (%s %s) connected: %s", usb_info.vid, usb_info.pid, usb_info.vendor_name, usb_info.product_name, device.device_node)
             logger.info('Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"', usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol, usb_info.interfaces)
             try:
-                vm = await vm_for_usb_device(context, config, api_server, usb_info, None, True)
-                if vm:
-                    await attach_usb_device(config, api_server, usb_info, vm)
+                await attach_usb_device(app_context, usb_info, True)
             except RuntimeError as e:
                 logger.error("Failed to attach device: %s", e)
     elif device.action == 'remove':
@@ -33,7 +42,7 @@ async def device_event(context, config, device, api_server):
             usb_info = get_usb_info(device)
             logger.info("USB device disconnected: %s", device.device_node)
             try:
-                await remove_usb_device(config, usb_info, api_server)
+                await remove_usb_device(app_context, usb_info)
             except RuntimeError as e:
                 logger.error("Failed to detach device: %s", e)
     elif device.action == 'change':
@@ -42,15 +51,15 @@ async def device_event(context, config, device, api_server):
         if device.subsystem == 'power_supply':
             logger.info("Power supply device %s changed, this may indicate a system resume", device.sys_name)
 
-# pylint: disable = too-many-positional-arguments
-async def monitor_loop(monitor, context, config, api_server, watcher, attach_connected):
+async def monitor_loop(app_context, file_watcher, attach_connected):
     while True:
-        device = await asyncio.to_thread(monitor.poll, 1)
+        device = await asyncio.to_thread(app_context.udev_monitor.poll, 1)
         if device:
-            await device_event(context, config, device, api_server)
+            await device_event(app_context, device)
 
-        if watcher.detect_restart() and attach_connected:
-            await attach_connected_devices(context, config)
+        # Check all devices because one or more VMs have restarted
+        if file_watcher.detect_restart() and attach_connected:
+            await attach_connected_devices(app_context)
 
 async def async_main():
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
@@ -70,25 +79,31 @@ async def async_main():
 
     config = Config(args.config)
 
-    context = pyudev.Context()
-    if args.attach_connected:
-        await attach_connected_devices(context, config)
+    udev_context = pyudev.Context()
+    udev_monitor = pyudev.Monitor.from_netlink(udev_context)
 
-    monitor = pyudev.Monitor.from_netlink(context)
-
-    watcher = FileWatcher()
+    file_watcher = FileWatcher()
     for vm in config.get_all_vms():
         vm_socket = vm.get("socket")
         if vm_socket:
-            watcher.add_file(vm_socket)
+            file_watcher.add_file(vm_socket)
+
+    usb_state = USBState(config.persistency_enabled(), config.state_path())
+
+    app_context = AppContext(config, udev_monitor, udev_context, usb_state)
 
     api_server = None
     if config.api_enabled():
-        api_server = APIServer(config, context, asyncio.get_event_loop())
+        api_server = APIServer(app_context, asyncio.get_event_loop())
+        app_context.api_server = api_server
         api_server.start()
 
+    if args.attach_connected:
+        # Check all devices devices and attach to VMs
+        await attach_connected_devices(app_context)
+
     logger.info("Waiting for new devices")
-    await monitor_loop(monitor, context, config, api_server, watcher, args.attach_connected)
+    await monitor_loop(app_context, file_watcher, args.attach_connected)
 
 def main():
     try:

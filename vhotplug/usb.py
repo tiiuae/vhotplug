@@ -15,6 +15,7 @@ class USBInfo(NamedTuple):
     device_protocol: Optional[int] = None
     busnum: Optional[int] = None
     devnum: Optional[int] = None
+    serial: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -28,11 +29,15 @@ class USBInfo(NamedTuple):
             "device_subclass": self.device_subclass,
             "device_protocol": self.device_protocol,
             "busnum": self.busnum,
-            "devnum": self.devnum
+            "devnum": self.devnum,
+            "serial": self.serial
         }
 
     def dev_id(self):
         return f"usb{self.busnum}{self.devnum}"
+
+    def friendly_name(self):
+        return f"{self.vid}:{self.pid} ({self.vendor_name} {self.product_name})"
 
 def _bytes_to_int(data):
     if not data:
@@ -54,7 +59,8 @@ def get_usb_info(device) -> USBInfo:
     device_protocol = _bytes_to_int(device.attributes.get("bDeviceProtocol"))
     busnum = int(device.properties.get("BUSNUM"))
     devnum = int(device.properties.get("DEVNUM"))
-    return USBInfo(device_node, vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol, busnum, devnum)
+    serial = device.properties.get("ID_SERIAL_SHORT")
+    return USBInfo(device_node, vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol, busnum, devnum, serial)
 
 def parse_usb_interfaces(interfaces):
     result = []

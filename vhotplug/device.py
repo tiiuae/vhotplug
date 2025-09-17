@@ -2,6 +2,7 @@ import logging
 import fcntl
 import struct
 import psutil
+import pyudev
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.usb import get_usb_info, is_usb_hub
@@ -31,8 +32,9 @@ def log_device(device, level=logging.DEBUG):
         for i in device.properties:
             logger.log(level, "    %s = %s", i, device.properties[i])
         logger.log(level, "  Device attributes:")
-        for a in device.attributes.available_attributes:
-            logger.log(level, "    %s: %s", a, device.attributes.get(a))
+        # Logging all attributes might completely freeze the app when a YubiKey is connected to the host
+        #for a in device.attributes.available_attributes:
+            #logger.log(level, "    %s: %s", a, device.attributes.get(a))
     except AttributeError as e:
         logger.warning(e)
 
@@ -99,93 +101,183 @@ def is_boot_device(context, usb_info):
                         return True
     return False
 
-# pylint: disable = too-many-positional-arguments
-async def vm_for_usb_device(context, config, api_server, usb_info, selected_vm, ask):
-    if is_boot_device(context, usb_info):
-        logger.info("USB drive %s is used as a boot device", usb_info.device_node)
-        return None
+async def attach_usb_device(app_context, usb_info, ask):
+    '''Find a VM and attach a USB device when it is plugged in or detected at startup.'''
 
-    res = config.vm_for_usb_device(usb_info)
-    if not res:
-        logger.info("No VM found for %s:%s", usb_info.vid, usb_info.pid)
-        return None
+    # Find a rule for the device in the config file
+    (target_vm, allowed_vms) = app_context.config.vm_for_usb_device(usb_info)
+    if not target_vm and not allowed_vms:
+        logger.debug("No VM found for %s:%s", usb_info.vid, usb_info.pid)
+        return
 
-    target_vm = res[0]
-    allowed_vms = res[1]
-    if target_vm:
-        if selected_vm and selected_vm != target_vm:
-            raise RuntimeError(f"Selected vm {selected_vm} but target vm is set to {target_vm}")
-    else:
-        if allowed_vms is None:
-            raise RuntimeError("No allowed VMs")
-        if selected_vm:
-            if selected_vm not in allowed_vms:
-                raise RuntimeError(f"Selected VM {selected_vm} is not allowed")
-            target_vm = selected_vm
+    if is_usb_hub(usb_info.interfaces):
+        logger.debug("USB device %s is a USB hub, skipping", usb_info.friendly_name())
+        return
+
+    if is_boot_device(app_context.udev_context, usb_info):
+        logger.debug("USB drive %s is used as a boot device", usb_info.friendly_name())
+        return
+
+    # Check if the user manually disconnected the device before
+    if app_context.usb_state.is_disconnected(usb_info):
+        logger.info("Device %s was forcibly disconnected", usb_info.friendly_name())
+        if app_context.api_server:
+            app_context.api_server.notify_usb_attached(usb_info, None)
+        return
+
+    if not target_vm:
+        logger.info("Found multiple VMs for %s", usb_info.friendly_name())
+        if ask:
+            # Send a notification without a VM name and then ask for VM selection
+            if app_context.api_server:
+                app_context.api_server.notify_usb_attached(usb_info, None)
+            logger.info("Sending an API request to select a VM")
+            if app_context.api_server:
+                app_context.api_server.notify_usb_select_vm(usb_info, allowed_vms)
+            return
+
+        # Try to select the last used VM from the state database or fall back to the first one in the list
+        current_vm_name = app_context.usb_state.get_selected_vm_for_device(usb_info)
+        if current_vm_name and current_vm_name in allowed_vms:
+            logger.info("Selecting %s from the state database", current_vm_name)
+            target_vm = current_vm_name
         else:
-            logger.info("Found multiple VMs for %s:%s", usb_info.vid, usb_info.pid)
-            if ask:
-                if api_server:
-                    api_server.notify_usb_select_vm(usb_info, allowed_vms)
-                return None
+            logger.info("Selecting %s as first option", allowed_vms[0])
             target_vm = allowed_vms[0]
 
-    vm = config.get_vm(target_vm)
-    if not vm:
-        raise RuntimeError(f"VM {target_vm} is not found")
-    return vm
+    await attach_usb_device_to_vm(app_context, usb_info, target_vm)
 
-async def attach_usb_device(config, api_server, usb_info, vm):
-    vm_name = vm.get("name")
+async def attach_usb_device_to_vm(app_context, usb_info, vm_name):
+    '''Gets VM details and attaches a USB device.'''
+
+    # Get VM details from the config
+    vm = app_context.config.get_vm(vm_name)
+    if not vm:
+        raise RuntimeError(f"VM {vm_name} is not found in the config file")
+
+    logger.info("Attaching %s to %s", usb_info.friendly_name(), vm_name)
+
+    # Check if the device is attached to a different VM and remove
+    current_vm_name = app_context.usb_state.get_vm_for_device(usb_info)
+    if current_vm_name and current_vm_name != vm_name:
+        logger.warning("Device is attached to %s, removing...", current_vm_name)
+        try:
+            remove_usb_device(app_context, usb_info)
+        except RuntimeError as e:
+            logger.warning("Failed to remove: %s", e)
+
+    # Attach device to the VM
     vm_type = vm.get("type")
-    logger.info("Attaching to %s (%s)", vm_name, vm_type)
     vm_socket = vm.get("socket")
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
         #await qemu.add_usb_device_by_vid_pid(usb_info)
         await qemu.add_usb_device(usb_info)
-        if api_server:
-            api_server.notify_usb_attached(usb_info, vm_name)
     elif vm_type == "crosvm":
-        crosvm = CrosvmLink(vm_socket, config.config.get("general", {}).get("crosvm"))
+        crosvm = CrosvmLink(vm_socket, app_context.config.config.get("general", {}).get("crosvm"))
         await crosvm.add_usb_device(usb_info)
-        if api_server:
-            api_server.notify_usb_attached(usb_info, vm_name)
     else:
         raise RuntimeError(f"Unknown VM type: {vm_type}")
 
-async def remove_usb_device(config, usb_info, api_server):
-    # Enumerate all VMs, find the one with the device attached and remove it
-    for vm in config.get_all_vms():
-        vm_name = vm.get("name")
-        logger.info("Checking %s", vm_name)
-        vm_type = vm.get("type")
-        vm_socket = vm.get("socket")
-        if vm_type == "qemu":
-            qemu = QEMULink(vm_socket)
-            ids = await qemu.usb()
-            qemuid = usb_info.dev_id()
-            if qemuid in ids:
-                logger.info("Removing %s from %s", qemuid, vm_name)
-                await qemu.remove_usb_device(usb_info)
-                if api_server:
-                    api_server.notify_usb_detached(usb_info, vm_name)
-        elif vm_type == "crosvm":
-            # Crosvm seems to automatically remove the device from the list so this code is not really used
-            crosvm = CrosvmLink(vm_socket, config.config.get("crosvm"))
-            devices = await crosvm.usb_list()
-            for index, crosvm_vid, crosvm_pid in devices:
-                if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
-                    logger.info("Removing %s from %s", index, vm_name)
-                    await crosvm.remove_usb_device(index)
-                    if api_server:
-                        api_server.notify_usb_detached(usb_info, vm_name)
+    # Add selected VM to the state database
+    app_context.usb_state.set_vm_for_device(usb_info, vm_name)
+    app_context.usb_state.clear_disconnected(usb_info)
+
+    if app_context.api_server:
+        app_context.api_server.notify_usb_attached(usb_info, vm_name)
+
+async def remove_usb_device(app_context, usb_info):
+    '''Find a VM selected for the USB device and remove it.'''
+
+    # Get current VM for the device from the state database
+    current_vm_name = app_context.usb_state.get_vm_for_device(usb_info)
+    if not current_vm_name:
+        raise RuntimeError("VM not found for device")
+
+    logger.info("Removing %s from %s", usb_info.device_node, current_vm_name)
+
+    # Check if the VM is valid
+    vm = app_context.config.get_vm(current_vm_name)
+    if not vm:
+        raise RuntimeError(f"VM {current_vm_name} not found in the configuration file")
+
+    # Remove device from VM
+    vm_name = vm.get("name")
+    vm_type = vm.get("type")
+    vm_socket = vm.get("socket")
+    if vm_type == "qemu":
+        qemu = QEMULink(vm_socket)
+        qemuid = usb_info.dev_id()
+        logger.debug("Removing %s from %s", qemuid, vm_name)
+        await qemu.remove_usb_device(usb_info)
+    elif vm_type == "crosvm":
+        # Crosvm seems to automatically remove the device from the list so this code is not really used
+        crosvm = CrosvmLink(vm_socket, app_context.config.config.get("crosvm"))
+        devices = await crosvm.usb_list()
+        for index, crosvm_vid, crosvm_pid in devices:
+            if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
+                logger.debug("Removing %s from %s", index, vm_name)
+                await crosvm.remove_usb_device(index)
+    else:
+        raise RuntimeError(f"Unsupported vm type: {vm_type}")
+
+    # Remove it from the state database
+    app_context.usb_state.remove_vm_for_device(usb_info)
+
+    if app_context.api_server:
+        app_context.api_server.notify_usb_detached(usb_info, vm_name)
+
+async def attach_existing_usb_device(app_context, device_node, selected_vm):
+    '''Attach an existing USB device at the user's request.'''
+
+    try:
+        # Find USB device in the system
+        device = pyudev.Devices.from_device_file(app_context.udev_context, device_node)
+        usb_info = get_usb_info(device)
+
+        # Find a rule for the device in the config file
+        (target_vm, allowed_vms) = app_context.config.vm_for_usb_device(usb_info)
+        if target_vm:
+            if selected_vm != target_vm:
+                raise RuntimeError(f"Selected VM {selected_vm} but target VM is set to {target_vm}")
         else:
-            logger.error("Unsupported vm type: %s", vm_type)
-            raise RuntimeError(f"Unsupported vm type: {vm_type}")
+            if allowed_vms is None:
+                raise RuntimeError("No allowed VMs defined")
+            if selected_vm not in allowed_vms:
+                raise RuntimeError(f"Selected VM {selected_vm} is not allowed")
+            target_vm = selected_vm
+
+            # Save VM selection when multiple VMs are allowed
+            app_context.usb_state.select_vm_for_device(usb_info, target_vm)
+
+        # Don't allow attaching a USB drive used as a boot device
+        if is_boot_device(app_context.udev_context, usb_info):
+            raise RuntimeError(f"USB drive {usb_info.friendly_name()} is used as a boot device")
+
+        # Attach device to the VM
+        await attach_usb_device_to_vm(app_context, usb_info, target_vm)
+    except pyudev.DeviceNotFoundError:
+        raise RuntimeError(f"USB device {usb_info.friendly_name()} not found in the system") from None
+
+async def remove_existing_usb_device(app_context, device_node):
+    '''Remove an existing USB device at the user's request.'''
+
+    try:
+        # Find USB device in the system
+        device = pyudev.Devices.from_device_file(app_context.udev_context, device_node)
+        usb_info = get_usb_info(device)
+
+        # Remove device from the VM
+        await remove_usb_device(app_context, usb_info)
+
+        # Mark the device as forcibly disconnected
+        app_context.usb_state.set_disconnected(usb_info)
+    except pyudev.DeviceNotFoundError:
+        raise RuntimeError(f"USB device {usb_info.friendly_name()} not found in the system") from None
 
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     """Attaches evdev device to QEMU."""
+
     vm_name = vm.get("name")
     vm_type = vm.get("type")
     if vm_type != "qemu":
@@ -197,10 +289,11 @@ async def attach_evdev_device(vm, busprefix, pcieport, device):
     qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device, bus)
 
-async def attach_connected_devices(context, config):
+async def attach_connected_devices(app_context):
     """Finds all evdev and USB devices that match the rules from the config and attaches them to VMs."""
+
     # Non-USB evdev passthrough
-    res = config.vm_for_evdev_devices()
+    res = app_context.config.vm_for_evdev_devices()
     if res:
         vm = res[0]
         busprefix = res[1]
@@ -209,7 +302,7 @@ async def attach_connected_devices(context, config):
         else:
             pcieport = 1
             logger.info("Checking connected non-USB input devices")
-            for device in context.list_devices(subsystem='input'):
+            for device in app_context.udev_context.list_devices(subsystem='input'):
                 bus = device.properties.get("ID_BUS")
                 if is_input_device(device) and bus != "usb":
                     name = get_evdev_name(device)
@@ -223,38 +316,48 @@ async def attach_connected_devices(context, config):
 
     # Check USB devices
     logger.info("Checking connected USB devices")
-    for device in context.list_devices(subsystem='usb'):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
             logger.debug("Found USB device %s:%s (%s %s): %s", usb_info.vid, usb_info.pid, usb_info.vendor_name, usb_info.product_name, device.device_node)
             logger.debug('Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"', usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol, usb_info.interfaces)
             log_device(device)
-            if is_usb_hub(usb_info.interfaces):
-                logger.debug("USB device %s:%s is a USB hub, skipping", usb_info.vid, usb_info.pid)
-                continue
-            try:
-                vm = await vm_for_usb_device(context, config, None, usb_info, None, False)
-                if vm:
-                    await attach_usb_device(config, None, usb_info, vm)
-            except RuntimeError as e:
-                logger.error("Failed to attach device: %s", e)
 
-def get_usb_devices(context, config):
+            try:
+                await attach_usb_device(app_context, usb_info, False)
+            except RuntimeError as e:
+                logger.error("Failed to attach device %s: %s", usb_info.friendly_name(), e)
+
+def get_usb_devices(app_context):
     """Returns a list of all USB devices that match the rules from the config."""
+
     usb_list = []
-    for device in context.list_devices(subsystem='usb'):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
+
             if is_usb_hub(usb_info.interfaces):
                 continue
-            if is_boot_device(context, usb_info):
+
+            if is_boot_device(app_context.udev_context, usb_info):
                 continue
-            res = config.vm_for_usb_device(usb_info)
-            if res:
+
+            (target_vm, allowed_vms) = app_context.config.vm_for_usb_device(usb_info)
+            if target_vm or allowed_vms:
+
+                # Convert USB device info to a dictionary
                 usb_device = usb_info.to_dict()
-                if res[0]:
-                    usb_device["vm"] = res[0]
-                if res[1]:
-                    usb_device["allowed_vms"] = res[1]
+
+                # Get current VM name
+                current_vm_name = app_context.usb_state.get_vm_for_device(usb_info)
+                if current_vm_name and not app_context.usb_state.is_disconnected(usb_info):
+                    usb_device["vm"] = current_vm_name
+
+                # Add allowed VMs
+                if target_vm:
+                    usb_device["allowed_vms"] = [target_vm]
+                else:
+                    usb_device["allowed_vms"] = allowed_vms
+
                 usb_list.append(usb_device)
     return usb_list
