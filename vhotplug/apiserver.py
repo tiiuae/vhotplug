@@ -16,6 +16,7 @@ class APIServer:
         self.transport = api_config.get("transport", "vsock")
         self.host = api_config.get("host", "127.0.0.1")
         self.port = api_config.get("port", 2000)
+        self.allowed_cids = api_config.get("allowedCids")
         self.cid = socket.VMADDR_CID_ANY
         self.server_socket = None
         self.running = False
@@ -60,6 +61,13 @@ class APIServer:
             try:
                 client_sock, client_addr = self.server_socket.accept()
                 logger.info("API client connected %s", client_addr)
+                if self.transport == "vsock" and self.allowed_cids:
+                    remote_cid, _ = client_addr
+                    if remote_cid not in self.allowed_cids:
+                        logger.warning("Rejected VSOCK client with CID %s", remote_cid)
+                        client_sock.close()
+                        continue
+
                 with self.clients_lock:
                     self.clients.append(client_sock)
                 t = threading.Thread(target=self._client_handler, args=(client_sock, client_addr), daemon=True)
