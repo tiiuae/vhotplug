@@ -1,4 +1,4 @@
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, List
 import logging
 
 logger = logging.getLogger("vhotplug")
@@ -16,6 +16,7 @@ class USBInfo(NamedTuple):
     busnum: Optional[int] = None
     devnum: Optional[int] = None
     serial: Optional[str] = None
+    ports: Optional[List[int]] = None
 
     def to_dict(self):
         return {
@@ -30,7 +31,8 @@ class USBInfo(NamedTuple):
             "device_protocol": self.device_protocol,
             "busnum": self.busnum,
             "devnum": self.devnum,
-            "serial": self.serial
+            "serial": self.serial,
+            "ports": self.ports
         }
 
     def dev_id(self):
@@ -39,6 +41,10 @@ class USBInfo(NamedTuple):
     def friendly_name(self):
         return f"{self.vid}:{self.pid} ({self.vendor_name} {self.product_name})"
 
+    @property
+    def root_port(self):
+        return self.ports[0] if self.ports else None # pylint: disable=unsubscriptable-object
+
 def _bytes_to_int(data):
     if not data:
         return None
@@ -46,6 +52,15 @@ def _bytes_to_int(data):
         return int(data.decode().strip(), 16)
     except ValueError:
         return None
+
+def _get_ports(sys_name):
+    try:
+        parts = sys_name.split('-')
+        #bus = int(parts[0])
+        ports = [int(x) for x in parts[1].split('.')]
+    except (IndexError, ValueError):
+        ports = []
+    return ports
 
 def get_usb_info(device) -> USBInfo:
     device_node  = device.device_node
@@ -60,7 +75,9 @@ def get_usb_info(device) -> USBInfo:
     busnum = int(device.properties.get("BUSNUM"))
     devnum = int(device.properties.get("DEVNUM"))
     serial = device.properties.get("ID_SERIAL_SHORT")
-    return USBInfo(device_node, vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol, busnum, devnum, serial)
+    ports = _get_ports(device.sys_name)
+
+    return USBInfo(device_node, vid, pid, vendor_name, product_name, interfaces, device_class, device_subclass, device_protocol, busnum, devnum, serial, ports)
 
 def parse_usb_interfaces(interfaces):
     result = []

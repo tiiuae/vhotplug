@@ -7,6 +7,7 @@ setup(
     entry_points={
         "console_scripts": [
             "vhotplug=vhotplug.vhotplug:main",
+            "vhotplugcli=vhotplugcli.vhotplugcli:main",
         ],
     },
 )

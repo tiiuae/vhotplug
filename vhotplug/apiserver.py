@@ -3,7 +3,10 @@ import threading
 import json
 import logging
 import asyncio
-from vhotplug.device import get_usb_devices, attach_existing_usb_device, remove_existing_usb_device
+import os
+from vhotplug.device import (get_usb_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
+    remove_existing_usb_device, remove_existing_usb_device_by_bus_port, remove_existing_usb_device_by_vid_pid
+)
 
 logger = logging.getLogger("vhotplug")
 
@@ -13,12 +16,13 @@ class APIServer:
         self.loop = loop
         self.app_context = app_context
         api_config = self.app_context.config.config.get("general", {}).get("api", {})
-        self.transport = api_config.get("transport", "vsock")
+        self.transports = api_config.get("transports", [])
         self.host = api_config.get("host", "127.0.0.1")
         self.port = api_config.get("port", 2000)
         self.allowed_cids = api_config.get("allowedCids")
         self.cid = socket.VMADDR_CID_ANY
-        self.server_socket = None
+        self.uds_path = api_config.get("unix_socket", "/var/lib/vhotplug/vhotplug.sock")
+        self.server_sockets = []
         self.running = False
         self.clients = []
         self.notify_clients = []
@@ -26,27 +30,38 @@ class APIServer:
         self.client_threads = []
 
     def start(self):
-        if self.transport == "vsock":
-            self.server_socket = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.cid, self.port))
-            logger.info("API server listening on VSOCK port %s", self.port)
-        elif self.transport == "tcp":
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.host, self.port))
-            logger.info("API server listening on TCP port %s, host: %s", self.port, self.host)
-        else:
-            raise ValueError("API transport must be either vsock or tcp")
-
-        self.server_socket.listen()
         self.running = True
-        threading.Thread(target=self._accept_loop, daemon=True).start()
+        for transport in self.transports:
+            if transport == "vsock":
+                sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((self.cid, self.port))
+                logger.info("API server listening on VSOCK port %s", self.port)
+            elif transport == "tcp":
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((self.host, self.port))
+                logger.info("API server listening on TCP port %s, host: %s", self.port, self.host)
+            elif transport == "unix":
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    os.unlink(self.uds_path)
+                except OSError:
+                    if os.path.exists(self.uds_path):
+                        raise
+                sock.bind(self.uds_path)
+                logger.info("API server listening on UNIX socket %s", self.uds_path)
+            else:
+                raise ValueError("API transport must be either vsock, tcp or unix")
+
+            sock.listen()
+            self.server_sockets.append(sock)
+            threading.Thread(target=self._accept_loop, args=(sock, transport), daemon=True).start()
 
     def stop(self):
         self.running = False
-        if self.server_socket:
-            self.server_socket.close()
+        for sock in self.server_sockets:
+            sock.close()
         with self.clients_lock:
             for client_sock in self.clients:
                 client_sock.close()
@@ -54,14 +69,17 @@ class APIServer:
             self.notify_clients.clear()
         for t in self.client_threads:
             t.join()
+        self.client_threads.clear()
+        if "unix" in self.transports and os.path.exists(self.uds_path):
+            os.unlink(self.uds_path)
         logger.info("API server stopped")
 
-    def _accept_loop(self):
+    def _accept_loop(self, server_socket, transport):
         while self.running:
             try:
-                client_sock, client_addr = self.server_socket.accept()
-                logger.info("API client connected %s", client_addr)
-                if self.transport == "vsock" and self.allowed_cids:
+                client_sock, client_addr = server_socket.accept()
+                logger.debug("API client connected: %s", client_addr)
+                if transport == "vsock" and self.allowed_cids:
                     remote_cid, _ = client_addr
                     if remote_cid not in self.allowed_cids:
                         logger.warning("Rejected VSOCK client with CID %s", remote_cid)
@@ -84,7 +102,7 @@ class APIServer:
                 while self.running:
                     data = client_sock.recv(4096)
                     if not data:
-                        logger.info("API client disconnected: %s", client_addr)
+                        logger.debug("API client disconnected: %s", client_addr)
                         break
 
                     buffer += data.decode("utf-8")
@@ -133,11 +151,15 @@ class APIServer:
     def handle_message(self, client_sock, client_addr, msg):
         msg_name = msg.get("action")
 
+        if not client_addr and client_sock.family == socket.AF_UNIX:
+            client_addr = "unix socket"
+
         match msg_name:
             case "enable_notifications":
                 logger.info("Enabling notifications for %s", client_addr)
                 with self.clients_lock:
-                    self.notify_clients.append(client_sock)
+                    if client_sock not in self.notify_clients:
+                        self.notify_clients.append(client_sock)
                 return {"result": "ok"}
 
             case "usb_list":
@@ -148,13 +170,32 @@ class APIServer:
                 logger.info("API request usb attach from %s", client_addr)
                 try:
                     device_node = msg.get("device_node")
+                    bus = msg.get("bus")
+                    port = msg.get("port")
+                    vid = msg.get("vid")
+                    pid = msg.get("pid")
                     selected_vm = msg.get("vm")
-                    logger.info("Request to attach %s to %s", device_node, selected_vm)
-                    asyncio.run_coroutine_threadsafe(
-                        attach_existing_usb_device(self.app_context, device_node, selected_vm),
-                        self.loop,
-                    ).result()
+                    if device_node:
+                        logger.info("Request to attach %s to %s", device_node, selected_vm)
+                        asyncio.run_coroutine_threadsafe(
+                            attach_existing_usb_device(self.app_context, device_node, selected_vm),
+                            self.loop,
+                        ).result()
+                    elif bus and port:
+                        logger.info("Request to attach by bus %s and port %s to %s", bus, port, selected_vm)
+                        asyncio.run_coroutine_threadsafe(
+                            attach_existing_usb_device_by_bus_port(self.app_context, bus, port, selected_vm),
+                            self.loop,
+                        ).result()
+                    else:
+                        logger.info("Request to attach by vid %s and pid %s to %s", vid, pid, selected_vm)
+                        asyncio.run_coroutine_threadsafe(
+                            attach_existing_usb_device_by_vid_pid(self.app_context, vid, pid, selected_vm),
+                            self.loop,
+                        ).result()
+
                     return {"result": "ok"}
+
                 except RuntimeError as e:
                     logger.error("Failed to attach device: %s", e)
                     return {"result": "failed", "error": str(e)}
@@ -163,12 +204,31 @@ class APIServer:
                 logger.info("API request usb detach from %s", client_addr)
                 try:
                     device_node = msg.get("device_node")
-                    logger.info("Request to detach %s", device_node)
-                    asyncio.run_coroutine_threadsafe(
-                        remove_existing_usb_device(self.app_context, device_node),
-                        self.loop,
-                    ).result()
+                    bus = msg.get("bus")
+                    port = msg.get("port")
+                    vid = msg.get("vid")
+                    pid = msg.get("pid")
+                    if device_node:
+                        logger.info("Request to detach %s", device_node)
+                        asyncio.run_coroutine_threadsafe(
+                            remove_existing_usb_device(self.app_context, device_node),
+                            self.loop,
+                        ).result()
+                    elif bus and port:
+                        logger.info("Request to detach by bus %s and port %s", bus, port)
+                        asyncio.run_coroutine_threadsafe(
+                            remove_existing_usb_device_by_bus_port(self.app_context, bus, port),
+                            self.loop,
+                        ).result()
+                    else:
+                        logger.info("Request to detach by vid %s and pid %s", vid, pid)
+                        asyncio.run_coroutine_threadsafe(
+                            remove_existing_usb_device_by_vid_pid(self.app_context, vid, pid),
+                            self.loop,
+                        ).result()
+
                     return {"result": "ok"}
+
                 except RuntimeError as e:
                     logger.error("Failed to detach device: %s", e)
                     return {"result": "failed", "error": str(e)}

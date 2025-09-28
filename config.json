@@ -48,6 +48,11 @@
                 {
                     "deviceClass": 224,
                     "description": "Wireless Controller"
+                },
+                {
+                    "bus": 11,
+                    "port": 22,
+                    "description": "All devices on port 22 bus 11"
                 }
             ]
         },
@@ -91,7 +96,7 @@
             "enable": true,
             "host": "127.0.0.1",
             "port": 2000,
-            "transport": "tcp"
+            "transports": ["tcp", "vsock", "unix"]
         },
         "crosvm": "/usr/local/bin/crosvm"
     }

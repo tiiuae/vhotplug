@@ -14,7 +14,7 @@ class Config:
         with open(self.path, "r", encoding="utf-8") as file:
             return json.load(file)
 
-    # pylint: disable = too-many-locals
+    # pylint: disable = too-many-locals, too-many-return-statements
     def match(self, usb_info, usb_rule):
         if usb_rule.get("disable") is True:
             return False
@@ -40,6 +40,16 @@ class Config:
         pname_match = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
         if vname_match or pname_match:
             logger.debug("Match by vendor name / product name, description: %s", rule_description)
+            return True
+
+        # Match by bus/port
+        rule_bus = usb_rule.get("bus")
+        rule_port = usb_rule.get("port")
+        logger.debug("Checking bus %s port %s against %s and %s", usb_info.busnum, usb_info.root_port, rule_bus, rule_port)
+        bus_match = rule_bus and usb_info.busnum and usb_info.busnum == rule_bus
+        port_match = rule_port and usb_info.root_port and usb_info.root_port == rule_port
+        if bus_match and port_match:
+            logger.debug("Match by bus / port, description: %s", rule_description)
             return True
 
         # Match by device class, subclass and protocol

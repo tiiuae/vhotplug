@@ -19,6 +19,8 @@ Each rule can match devices using one or more of the following parameters:
 - productId — USB product ID (e.g., "4852")
 - vendorName — Vendor name (from udev or USB database, supports regular expressions)
 - productName — Product name (from udev or USB database, supports regular expressions)
+- bus - USB bus number
+- port - USB root port
 - interfaceClass — USB interface class (e.g., 224)
 - interfaceSubclass — USB interface subclass (e.g., 1)
 - interfaceProtocol — USB interface protocol (e.g., 1)

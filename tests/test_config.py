@@ -127,3 +127,23 @@ def test_bluetooth():
         )
     )
     assert target_vm == "vm2" and allowed_vms is None
+
+def test_bus_port():
+    config = Config("config.json")
+    (target_vm, allowed_vms) = config.vm_for_usb_device(
+        USBInfo(
+            busnum=11,
+            ports=[22, 33, 44]
+        )
+    )
+    assert target_vm == "vm2" and allowed_vms is None
+
+def test_wrong_bus_port():
+    config = Config("config.json")
+    (target_vm, allowed_vms) = config.vm_for_usb_device(
+        USBInfo(
+            busnum=11,
+            ports=[33, 22, 44]
+        )
+    )
+    assert target_vm is None and allowed_vms is None

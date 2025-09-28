@@ -101,6 +101,17 @@ def is_boot_device(context, usb_info):
                         return True
     return False
 
+def _autoselect_vm(app_context, usb_info, allowed_vms):
+    ''' Select the last used VM from the state database or fall back to the first one in the list of allowed vms'''
+
+    current_vm_name = app_context.usb_state.get_selected_vm_for_device(usb_info)
+    if current_vm_name and current_vm_name in allowed_vms:
+        logger.info("Selecting %s from the state database", current_vm_name)
+        return current_vm_name
+
+    logger.info("Selecting %s as first option", allowed_vms[0])
+    return allowed_vms[0]
+
 async def attach_usb_device(app_context, usb_info, ask):
     '''Find a VM and attach a USB device when it is plugged in or detected at startup.'''
 
@@ -137,13 +148,7 @@ async def attach_usb_device(app_context, usb_info, ask):
             return
 
         # Try to select the last used VM from the state database or fall back to the first one in the list
-        current_vm_name = app_context.usb_state.get_selected_vm_for_device(usb_info)
-        if current_vm_name and current_vm_name in allowed_vms:
-            logger.info("Selecting %s from the state database", current_vm_name)
-            target_vm = current_vm_name
-        else:
-            logger.info("Selecting %s as first option", allowed_vms[0])
-            target_vm = allowed_vms[0]
+        target_vm = _autoselect_vm(app_context, usb_info, allowed_vms)
 
     await attach_usb_device_to_vm(app_context, usb_info, target_vm)
 
@@ -227,53 +232,93 @@ async def remove_usb_device(app_context, usb_info):
     if app_context.api_server:
         app_context.api_server.notify_usb_detached(usb_info, vm_name)
 
-async def attach_existing_usb_device(app_context, device_node, selected_vm):
+async def _attach_existing_usb_device(app_context, device, selected_vm):
     '''Attach an existing USB device at the user's request.'''
 
-    try:
-        # Find USB device in the system
-        device = pyudev.Devices.from_device_file(app_context.udev_context, device_node)
-        usb_info = get_usb_info(device)
+    usb_info = get_usb_info(device)
 
-        # Find a rule for the device in the config file
-        (target_vm, allowed_vms) = app_context.config.vm_for_usb_device(usb_info)
-        if target_vm:
-            if selected_vm != target_vm:
-                raise RuntimeError(f"Selected VM {selected_vm} but target VM is set to {target_vm}")
-        else:
-            if allowed_vms is None:
-                raise RuntimeError("No allowed VMs defined")
+    # Don't allow attaching a USB drive used as a boot device
+    if is_boot_device(app_context.udev_context, usb_info):
+        raise RuntimeError(f"USB drive {usb_info.friendly_name()} is used as a boot device")
+
+    # Find a rule for the device in the config file
+    (target_vm, allowed_vms) = app_context.config.vm_for_usb_device(usb_info)
+    if target_vm:
+        if selected_vm and selected_vm != target_vm:
+            raise RuntimeError(f"Selected VM {selected_vm} but target VM is set to {target_vm}")
+    else:
+        if allowed_vms is None:
+            raise RuntimeError("No allowed VMs defined")
+        if selected_vm:
             if selected_vm not in allowed_vms:
                 raise RuntimeError(f"Selected VM {selected_vm} is not allowed")
-            target_vm = selected_vm
 
             # Save VM selection when multiple VMs are allowed
+            target_vm = selected_vm
             app_context.usb_state.select_vm_for_device(usb_info, target_vm)
+        else:
+            # Try to select the last used VM from the state database or fall back to the first one in the list
+            target_vm = _autoselect_vm(app_context, usb_info, allowed_vms)
 
-        # Don't allow attaching a USB drive used as a boot device
-        if is_boot_device(app_context.udev_context, usb_info):
-            raise RuntimeError(f"USB drive {usb_info.friendly_name()} is used as a boot device")
+    # Attach device to the VM
+    await attach_usb_device_to_vm(app_context, usb_info, target_vm)
 
-        # Attach device to the VM
-        await attach_usb_device_to_vm(app_context, usb_info, target_vm)
+def _usb_device_by_node(app_context, device_node):
+    try:
+        return pyudev.Devices.from_device_file(app_context.udev_context, device_node)
     except pyudev.DeviceNotFoundError:
-        raise RuntimeError(f"USB device {usb_info.friendly_name()} not found in the system") from None
+        raise RuntimeError(f"USB device {device_node} not found in the system") from None
 
-async def remove_existing_usb_device(app_context, device_node):
+def _usb_device_by_bus_port(app_context, bus, port):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
+        if is_usb_device(device):
+            usb_info = get_usb_info(device)
+            if usb_info.busnum == bus and usb_info.root_port == port:
+                return device
+    raise RuntimeError(f"USB device with bus {bus} and port {port} not found in the system")
+
+def _usb_device_by_vid_pid(app_context, vid, pid):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
+        if is_usb_device(device):
+            usb_info = get_usb_info(device)
+            if usb_info.vid.casefold() == vid.casefold() and usb_info.pid.casefold() == pid.casefold():
+                return device
+    raise RuntimeError(f"USB device {vid}:{pid} not found in the system")
+
+async def attach_existing_usb_device(app_context, device_node, selected_vm):
+    device = _usb_device_by_node(app_context, device_node)
+    await _attach_existing_usb_device(app_context, device, selected_vm)
+
+async def attach_existing_usb_device_by_bus_port(app_context, bus, port, selected_vm):
+    device = _usb_device_by_bus_port(app_context, bus, port)
+    await _attach_existing_usb_device(app_context, device, selected_vm)
+
+async def attach_existing_usb_device_by_vid_pid(app_context, vid, pid, selected_vm):
+    device = _usb_device_by_vid_pid(app_context, vid, pid)
+    await _attach_existing_usb_device(app_context, device, selected_vm)
+
+async def _remove_existing_usb_device(app_context, device):
     '''Remove an existing USB device at the user's request.'''
 
-    try:
-        # Find USB device in the system
-        device = pyudev.Devices.from_device_file(app_context.udev_context, device_node)
-        usb_info = get_usb_info(device)
+    usb_info = get_usb_info(device)
 
-        # Remove device from the VM
-        await remove_usb_device(app_context, usb_info)
+    # Remove device from the VM
+    await remove_usb_device(app_context, usb_info)
 
-        # Mark the device as forcibly disconnected
-        app_context.usb_state.set_disconnected(usb_info)
-    except pyudev.DeviceNotFoundError:
-        raise RuntimeError(f"USB device {usb_info.friendly_name()} not found in the system") from None
+    # Mark the device as forcibly disconnected
+    app_context.usb_state.set_disconnected(usb_info)
+
+async def remove_existing_usb_device(app_context, device_node):
+    device = _usb_device_by_node(app_context, device_node)
+    await _remove_existing_usb_device(app_context, device)
+
+async def remove_existing_usb_device_by_bus_port(app_context, bus, port):
+    device = _usb_device_by_bus_port(app_context, bus, port)
+    await _remove_existing_usb_device(app_context, device)
+
+async def remove_existing_usb_device_by_vid_pid(app_context, vid, pid):
+    device = _usb_device_by_vid_pid(app_context, vid, pid)
+    await _remove_existing_usb_device(app_context, device)
 
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     """Attaches evdev device to QEMU."""
