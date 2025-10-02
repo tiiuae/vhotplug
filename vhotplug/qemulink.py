@@ -54,6 +54,8 @@ class QEMULink:
                     ids.append(match.group(1))
         except QMPError as e:
             logger.error("Failed to get a list of USB guest devices: %s", e)
+        except asyncio.TimeoutError:
+            logger.error("Timeout while trying to add USB devices: %s", e)
         finally:
             await qmp.disconnect()
         return ids
@@ -109,7 +111,10 @@ class QEMULink:
             try:
                 await qmp.connect(self.socket_path)
                 logger.info("Adding USB device with id %s bus %s dev %s to %s", qemuid, usb_info.busnum, usb_info.devnum, self.socket_path)
-                res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": usb_info.busnum, "hostaddr": usb_info.devnum, "id": qemuid})
+                res = await asyncio.wait_for(
+                    qmp.execute("device_add", {"driver": "usb-host", "hostbus": usb_info.busnum, "hostaddr": usb_info.devnum, "id": qemuid}),
+                    timeout=5.0 # seconds
+                )
                 if res:
                     logger.error("Failed to add device %s: %s", qemuid, res)
                 else:
