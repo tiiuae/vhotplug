@@ -297,7 +297,7 @@ async def attach_existing_usb_device_by_vid_pid(app_context, vid, pid, selected_
     device = _usb_device_by_vid_pid(app_context, vid, pid)
     await _attach_existing_usb_device(app_context, device, selected_vm)
 
-async def _remove_existing_usb_device(app_context, device):
+async def _remove_existing_usb_device(app_context, device, permanent = False):
     '''Remove an existing USB device at the user's request.'''
 
     usb_info = get_usb_info(device)
@@ -306,19 +306,20 @@ async def _remove_existing_usb_device(app_context, device):
     await remove_usb_device(app_context, usb_info)
 
     # Mark the device as forcibly disconnected
-    app_context.usb_state.set_disconnected(usb_info)
+    if permanent:
+        app_context.usb_state.set_disconnected(usb_info)
 
-async def remove_existing_usb_device(app_context, device_node):
+async def remove_existing_usb_device(app_context, device_node, permanent = False):
     device = _usb_device_by_node(app_context, device_node)
-    await _remove_existing_usb_device(app_context, device)
+    await _remove_existing_usb_device(app_context, device, permanent)
 
-async def remove_existing_usb_device_by_bus_port(app_context, bus, port):
+async def remove_existing_usb_device_by_bus_port(app_context, bus, port, permanent = False):
     device = _usb_device_by_bus_port(app_context, bus, port)
-    await _remove_existing_usb_device(app_context, device)
+    await _remove_existing_usb_device(app_context, device, permanent)
 
-async def remove_existing_usb_device_by_vid_pid(app_context, vid, pid):
+async def remove_existing_usb_device_by_vid_pid(app_context, vid, pid, permanent = False):
     device = _usb_device_by_vid_pid(app_context, vid, pid)
-    await _remove_existing_usb_device(app_context, device)
+    await _remove_existing_usb_device(app_context, device, permanent)
 
 async def attach_evdev_device(vm, busprefix, pcieport, device):
     """Attaches evdev device to QEMU."""
@@ -372,6 +373,13 @@ async def attach_connected_devices(app_context):
                 await attach_usb_device(app_context, usb_info, False)
             except RuntimeError as e:
                 logger.error("Failed to attach device %s: %s", usb_info.friendly_name(), e)
+
+async def detach_connected_devices(app_context):
+    """Detach all connected devices from VMs."""
+
+    logger.info("Detaching all USB devices")
+    for device_node in app_context.usb_state.list_devices():
+        await remove_existing_usb_device(app_context, device_node)
 
 def get_usb_devices(app_context):
     """Returns a list of all USB devices that match the rules from the config."""

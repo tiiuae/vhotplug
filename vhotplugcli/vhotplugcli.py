@@ -49,6 +49,20 @@ def usb_list(client: APIClient):
             print(f"  {key:<16}: {value}")
         print()
 
+def usb_suspend(client: APIClient):
+    client.connect()
+    res = client.usb_suspend()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to suspend USB: {res.get('error')}")
+    logger.info("Successfully suspended")
+
+def usb_resume(client: APIClient):
+    client.connect()
+    res = client.usb_resume()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
+    logger.info("Successfully resumed")
+
 def main():
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
@@ -83,6 +97,12 @@ def main():
 
     usb_list_parser = usb_sub.add_parser("list", help="Get USB list")
     usb_list_parser.set_defaults(func=lambda a, c: usb_list(c))
+
+    usb_suspend_parser = usb_sub.add_parser("suspend", help="USB suspend")
+    usb_suspend_parser.set_defaults(func=lambda a, c: usb_suspend(c))
+
+    usb_resume_parser = usb_sub.add_parser("resume", help="USB resume")
+    usb_resume_parser.set_defaults(func=lambda a, c: usb_resume(c))
 
     args = parser.parse_args()
 

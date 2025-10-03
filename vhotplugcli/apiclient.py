@@ -100,6 +100,12 @@ class APIClient:
     def usb_detach_by_vid_pid(self, vid, pid):
         return self.send({"action": "usb_detach", "vid": vid, "pid": pid})
 
+    def usb_suspend(self):
+        return self.send({"action": "usb_suspend"})
+
+    def usb_resume(self):
+        return self.send({"action": "usb_resume"})
+
     # pylint: disable=too-many-positional-arguments
     @classmethod
     def recv_notifications(cls, callback, host="127.0.0.1", port=2000, cid=2, transport="vsock", reconnect_delay=3):

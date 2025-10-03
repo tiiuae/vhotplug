@@ -5,7 +5,8 @@ import logging
 import asyncio
 import os
 from vhotplug.device import (get_usb_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
-    remove_existing_usb_device, remove_existing_usb_device_by_bus_port, remove_existing_usb_device_by_vid_pid
+    remove_existing_usb_device, remove_existing_usb_device_by_bus_port, remove_existing_usb_device_by_vid_pid,
+    attach_connected_devices, detach_connected_devices
 )
 
 logger = logging.getLogger("vhotplug")
@@ -28,6 +29,15 @@ class APIServer:
         self.notify_clients = []
         self.clients_lock = threading.Lock()
         self.client_threads = []
+
+        self.handlers = {
+            "enable_notifications": self._on_enable_notifications,
+            "usb_list": self._on_usb_list,
+            "usb_attach": self._on_usb_attach,
+            "usb_detach": self._on_usb_detach,
+            "usb_suspend": self._on_usb_suspend,
+            "usb_resume": self._on_usb_resume,
+        }
 
     def start(self):
         self.running = True
@@ -97,6 +107,8 @@ class APIServer:
 
     def _client_handler(self, client_sock, client_addr):
         buffer = ""
+        if not client_addr and client_sock.family == socket.AF_UNIX:
+            client_addr = "unix socket"
         try:
             with client_sock:
                 while self.running:
@@ -147,92 +159,93 @@ class APIServer:
     def notify_usb_select_vm(self, usb_info, allowed_vms):
         self.notify({"event": "usb_select_vm", "usb_device": usb_info.to_dict(), "allowed_vms": allowed_vms})
 
-    # pylint: disable = too-many-return-statements
     def handle_message(self, client_sock, client_addr, msg):
-        msg_name = msg.get("action")
+        action = msg.get("action")
+        handler = self.handlers.get(action)
+        if handler is None:
+            logger.warning("Unknown API request %s from %s", action, client_addr)
+            return {"result": "failed", "error": f"Unknown message: {action}"}
+        try:
+            logger.info('API request "%s" from %s', action, client_addr)
+            return handler(client_sock, client_addr, msg)
+        except (RuntimeError, TypeError, ValueError) as e:
+            logger.error("Failed to prcoess API request: %s", e)
+            return {"result": "failed", "error": str(e)}
 
-        if not client_addr and client_sock.family == socket.AF_UNIX:
-            client_addr = "unix socket"
+    def _on_enable_notifications(self, client_sock, _client_addr, _msg):
+        with self.clients_lock:
+            if client_sock not in self.notify_clients:
+                self.notify_clients.append(client_sock)
+        return {"result": "ok"}
 
-        match msg_name:
-            case "enable_notifications":
-                logger.info("Enabling notifications for %s", client_addr)
-                with self.clients_lock:
-                    if client_sock not in self.notify_clients:
-                        self.notify_clients.append(client_sock)
-                return {"result": "ok"}
+    def _on_usb_list(self, _client_sock, _client_addr, _msg):
+        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
 
-            case "usb_list":
-                logger.info("API request usb list from %s", client_addr)
-                return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
+    def _on_usb_attach(self, _client_sock, _client_addr, msg):
+        device_node = msg.get("device_node")
+        bus = msg.get("bus")
+        port = msg.get("port")
+        vid = msg.get("vid")
+        pid = msg.get("pid")
+        selected_vm = msg.get("vm")
+        if device_node:
+            logger.info("Request to attach %s to %s", device_node, selected_vm)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_usb_device(self.app_context, device_node, selected_vm),
+                self.loop,
+            ).result()
+        elif bus and port:
+            logger.info("Request to attach by bus %s and port %s to %s", bus, port, selected_vm)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_usb_device_by_bus_port(self.app_context, bus, port, selected_vm),
+                self.loop,
+            ).result()
+        else:
+            logger.info("Request to attach by vid %s and pid %s to %s", vid, pid, selected_vm)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_usb_device_by_vid_pid(self.app_context, vid, pid, selected_vm),
+                self.loop,
+            ).result()
 
-            case "usb_attach":
-                logger.info("API request usb attach from %s", client_addr)
-                try:
-                    device_node = msg.get("device_node")
-                    bus = msg.get("bus")
-                    port = msg.get("port")
-                    vid = msg.get("vid")
-                    pid = msg.get("pid")
-                    selected_vm = msg.get("vm")
-                    if device_node:
-                        logger.info("Request to attach %s to %s", device_node, selected_vm)
-                        asyncio.run_coroutine_threadsafe(
-                            attach_existing_usb_device(self.app_context, device_node, selected_vm),
-                            self.loop,
-                        ).result()
-                    elif bus and port:
-                        logger.info("Request to attach by bus %s and port %s to %s", bus, port, selected_vm)
-                        asyncio.run_coroutine_threadsafe(
-                            attach_existing_usb_device_by_bus_port(self.app_context, bus, port, selected_vm),
-                            self.loop,
-                        ).result()
-                    else:
-                        logger.info("Request to attach by vid %s and pid %s to %s", vid, pid, selected_vm)
-                        asyncio.run_coroutine_threadsafe(
-                            attach_existing_usb_device_by_vid_pid(self.app_context, vid, pid, selected_vm),
-                            self.loop,
-                        ).result()
+        return {"result": "ok"}
 
-                    return {"result": "ok"}
+    def _on_usb_detach(self, _client_sock, _client_addr, msg):
+        device_node = msg.get("device_node")
+        bus = msg.get("bus")
+        port = msg.get("port")
+        vid = msg.get("vid")
+        pid = msg.get("pid")
+        if device_node:
+            logger.info("Request to detach %s", device_node)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_usb_device(self.app_context, device_node, True),
+                self.loop,
+            ).result()
+        elif bus and port:
+            logger.info("Request to detach by bus %s and port %s", bus, port)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_usb_device_by_bus_port(self.app_context, bus, port, True),
+                self.loop,
+            ).result()
+        else:
+            logger.info("Request to detach by vid %s and pid %s", vid, pid)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_usb_device_by_vid_pid(self.app_context, vid, pid, True),
+                self.loop,
+            ).result()
 
-                except RuntimeError as e:
-                    logger.error("Failed to attach device: %s", e)
-                    return {"result": "failed", "error": str(e)}
+        return {"result": "ok"}
 
-            case "usb_detach":
-                logger.info("API request usb detach from %s", client_addr)
-                try:
-                    device_node = msg.get("device_node")
-                    bus = msg.get("bus")
-                    port = msg.get("port")
-                    vid = msg.get("vid")
-                    pid = msg.get("pid")
-                    if device_node:
-                        logger.info("Request to detach %s", device_node)
-                        asyncio.run_coroutine_threadsafe(
-                            remove_existing_usb_device(self.app_context, device_node),
-                            self.loop,
-                        ).result()
-                    elif bus and port:
-                        logger.info("Request to detach by bus %s and port %s", bus, port)
-                        asyncio.run_coroutine_threadsafe(
-                            remove_existing_usb_device_by_bus_port(self.app_context, bus, port),
-                            self.loop,
-                        ).result()
-                    else:
-                        logger.info("Request to detach by vid %s and pid %s", vid, pid)
-                        asyncio.run_coroutine_threadsafe(
-                            remove_existing_usb_device_by_vid_pid(self.app_context, vid, pid),
-                            self.loop,
-                        ).result()
+    def _on_usb_suspend(self, _client_sock, _client_addr, _msg):
+        asyncio.run_coroutine_threadsafe(
+            detach_connected_devices(self.app_context),
+            self.loop,
+        ).result()
+        return {"result": "ok"}
 
-                    return {"result": "ok"}
-
-                except RuntimeError as e:
-                    logger.error("Failed to detach device: %s", e)
-                    return {"result": "failed", "error": str(e)}
-
-            case _:
-                logger.warning("API server unknown message: %s", msg_name)
-                return {"result": "failed", "error": f"Unknown message: {msg_name}"}
+    def _on_usb_resume(self, _client_sock, _client_addr, _msg):
+        asyncio.run_coroutine_threadsafe(
+            attach_connected_devices(self.app_context),
+            self.loop,
+        ).result()
+        return {"result": "ok"}
