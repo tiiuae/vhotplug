@@ -39,6 +39,7 @@ class FileWatcher:
 
     def detect_restart(self):
         vm_restart_detected = False
+        vms_restarted = []
         try:
             events = self.inotify.read(timeout=0)
             for event in events:
@@ -50,8 +51,9 @@ class FileWatcher:
                     if event.mask & flags.CREATE:
                         logger.info("VM %s started", file_path)
                         vm_restart_detected = True
+                        vms_restarted.append(file_path)
                     if event.mask & flags.DELETE:
                         logger.info("VM %s stopped", file_path)
         except OSError:
             pass
-        return vm_restart_detected
+        return vm_restart_detected, vms_restarted

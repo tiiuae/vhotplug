@@ -131,7 +131,7 @@ class Config:
                     return self.get_vm(vm_name), bus_prefix
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for evdev device in the configuration file: %s", e)
-        return None
+        return None, None
 
     def get_all_vms(self):
         return self.config.get("vms", [])

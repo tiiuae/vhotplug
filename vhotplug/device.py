@@ -335,32 +335,31 @@ async def attach_evdev_device(vm, busprefix, pcieport, device):
     qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device, bus)
 
+async def attach_connected_evdev(app_context):
+    """Non-USB evdev passthrough."""
+
+    vm, busprefix = app_context.config.vm_for_evdev_devices()
+    if vm is None:
+        logger.debug("Evdev passthrough is not enabled")
+        return
+
+    pcieport = 1
+    logger.info("Checking connected non-USB input devices")
+    for device in app_context.udev_context.list_devices(subsystem='input'):
+        bus = device.properties.get("ID_BUS")
+        if is_input_device(device) and bus != "usb":
+            name = get_evdev_name(device)
+            logger.info("Found non-USB input device: %s, bus: %s, node: %s", name, bus, device.device_node)
+            log_device(device)
+            if await test_grab(device):
+                logger.info("The device is grabbed by another process, it is likely already connected to the VM")
+            else:
+                await attach_evdev_device(vm, busprefix, pcieport, device)
+                pcieport += 1
+
 async def attach_connected_devices(app_context):
     """Finds all evdev and USB devices that match the rules from the config and attaches them to VMs."""
 
-    # Non-USB evdev passthrough
-    res = app_context.config.vm_for_evdev_devices()
-    if res:
-        vm = res[0]
-        busprefix = res[1]
-        if not vm:
-            logger.info("Evdev passthrough is not enabled")
-        else:
-            pcieport = 1
-            logger.info("Checking connected non-USB input devices")
-            for device in app_context.udev_context.list_devices(subsystem='input'):
-                bus = device.properties.get("ID_BUS")
-                if is_input_device(device) and bus != "usb":
-                    name = get_evdev_name(device)
-                    logger.info("Found non-USB input device: %s, bus: %s, node: %s", name, bus, device.device_node)
-                    log_device(device)
-                    if await test_grab(device):
-                        logger.info("The device is grabbed by another process, it is likely already connected to the VM")
-                    else:
-                        await attach_evdev_device(vm, busprefix, pcieport, device)
-                        pcieport += 1
-
-    # Check USB devices
     logger.info("Checking connected USB devices")
     for device in app_context.udev_context.list_devices(subsystem='usb'):
         if is_usb_device(device):

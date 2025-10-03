@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 import pyudev
-from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_devices
+from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_evdev, attach_connected_devices
 from vhotplug.config import Config
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.apiserver import APIServer
@@ -58,7 +58,13 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
             await device_event(app_context, device)
 
         # Check all devices because one or more VMs have restarted
-        if file_watcher.detect_restart() and attach_connected:
+        vm_restart_detected, vms_restarted = file_watcher.detect_restart()
+        if vm_restart_detected and attach_connected:
+            # Check non-USB evdev devices when the target VM is restarted
+            vm, _ = app_context.config.vm_for_evdev_devices()
+            if vm and vm.get("socket") in vms_restarted:
+                await attach_connected_evdev(app_context)
+            # Check all USB devices
             await attach_connected_devices(app_context)
 
 async def async_main():
@@ -99,7 +105,9 @@ async def async_main():
         api_server.start()
 
     if args.attach_connected:
-        # Check all devices devices and attach to VMs
+        # Check all evdev input devices devices and attach to VMs
+        await attach_connected_evdev(app_context)
+        # Check all USB devices devices and attach to VMs
         await attach_connected_devices(app_context)
 
     logger.info("Waiting for new devices")
