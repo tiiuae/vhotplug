@@ -28,6 +28,7 @@ jobs:
         run: |
           source venv/bin/activate
           pylint ./vhotplug
+          pylint ./vhotplugcli
 
       - name: Run pytest
         run:  |
