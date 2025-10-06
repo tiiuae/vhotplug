@@ -1,5 +1,8 @@
 import logging
 import argparse
+import socket
+import struct
+import fcntl
 from vhotplugcli.apiclient import APIClient
 
 logger = logging.getLogger(__name__)
@@ -63,15 +66,26 @@ def usb_resume(client: APIClient):
         raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
     logger.info("Successfully resumed")
 
+def running_in_vm():
+    try:
+        with open("/dev/vsock", "rb") as fd:
+            buf = bytearray(4)
+            fcntl.ioctl(fd, socket.IOCTL_VM_SOCKETS_GET_LOCAL_CID, buf)
+            cid = struct.unpack("I", buf)[0]
+            logger.debug("Local CID: %d", cid)
+            return cid not in (socket.VMADDR_CID_ANY, socket.VMADDR_CID_HOST)
+    except OSError:
+        return False
+
 def main():
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
     parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages",)
-    parser.add_argument("--transport", choices=["unix", "tcp", "vsock"], default="unix", help="Transport type (default: unix)")
+    parser.add_argument("--transport", choices=["unix", "tcp", "vsock"], help="Transport type (default: vsock when running in a VM, otherwise unix)")
     parser.add_argument("--path", default="/var/lib/vhotplug/vhotplug.sock", help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)")
     parser.add_argument("--host", help="TCP host")
-    parser.add_argument("--port", type=int, help="TCP or VSOCK port")
-    parser.add_argument("--cid", type=int, help="VSOCK CID")
+    parser.add_argument("--port", type=int, default=2000, help="TCP or VSOCK port (default: 2000)")
+    parser.add_argument("--cid", type=int, default=socket.VMADDR_CID_HOST, help="VSOCK CID (default: VMADDR_CID_HOST = 2)")
 
     subparsers = parser.add_subparsers(dest="subsystem", required=True)
 
@@ -115,7 +129,8 @@ def main():
     root_logger.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
     try:
-        client = APIClient(transport=args.transport, path=args.path, host=args.host, port=args.port, cid=args.cid)
+        transport = args.transport or ("vsock" if running_in_vm() else "unix")
+        client = APIClient(transport=transport, path=args.path, host=args.host, port=args.port, cid=args.cid)
         args.func(args, client)
         return 0
     except (RuntimeError, ValueError, OSError) as e:
