@@ -81,11 +81,11 @@ def main():
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
     parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages",)
-    parser.add_argument("--transport", choices=["unix", "tcp", "vsock"], help="Transport type (default: vsock when running in a VM, otherwise unix)")
-    parser.add_argument("--path", default="/var/lib/vhotplug/vhotplug.sock", help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)")
-    parser.add_argument("--host", help="TCP host")
-    parser.add_argument("--port", type=int, default=2000, help="TCP or VSOCK port (default: 2000)")
-    parser.add_argument("--cid", type=int, default=socket.VMADDR_CID_HOST, help="VSOCK CID (default: VMADDR_CID_HOST = 2)")
+    parser.add_argument("-t", "--transport", choices=["unix", "tcp", "vsock"], help="Transport type (default: vsock when running in a VM, otherwise unix)")
+    parser.add_argument("-u", "--path", default="/var/lib/vhotplug/vhotplug.sock", help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)")
+    parser.add_argument("-s", "--host", default="127.0.0.1", help="TCP host (default: 127.0.0.1)")
+    parser.add_argument("-p", "--net-port", type=int, default=2000, help="TCP or VSOCK port (default: 2000)")
+    parser.add_argument("-c", "--cid", type=int, default=socket.VMADDR_CID_HOST, help="VSOCK CID (default: VMADDR_CID_HOST = 2)")
 
     subparsers = parser.add_subparsers(dest="subsystem", required=True)
 
@@ -130,7 +130,7 @@ def main():
 
     try:
         transport = args.transport or ("vsock" if running_in_vm() else "unix")
-        client = APIClient(transport=transport, path=args.path, host=args.host, port=args.port, cid=args.cid)
+        client = APIClient(transport=transport, path=args.path, host=args.host, port=args.net_port, cid=args.cid)
         args.func(args, client)
         return 0
     except (RuntimeError, ValueError, OSError) as e:

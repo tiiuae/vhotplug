@@ -400,16 +400,18 @@ def get_usb_devices(app_context):
                 # Convert USB device info to a dictionary
                 usb_device = usb_info.to_dict()
 
-                # Get current VM name
-                current_vm_name = app_context.usb_state.get_vm_for_device(usb_info)
-                if current_vm_name and not app_context.usb_state.is_disconnected(usb_info):
-                    usb_device["vm"] = current_vm_name
-
                 # Add allowed VMs
                 if target_vm:
                     usb_device["allowed_vms"] = [target_vm]
                 else:
                     usb_device["allowed_vms"] = allowed_vms
+
+                # Get current VM name
+                current_vm_name = app_context.usb_state.get_vm_for_device(usb_info)
+                if current_vm_name and not app_context.usb_state.is_disconnected(usb_info):
+                    usb_device["vm"] = current_vm_name
+                else:
+                    usb_device["vm"] = None
 
                 usb_list.append(usb_device)
     return usb_list
