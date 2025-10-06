@@ -59,8 +59,7 @@ class APIClient:
         while True:
             data = self.sock.recv(4096)
             if not data:
-                logger.warning("API connection closed by remote")
-                break
+                raise RuntimeError("API connection closed by remote")
             buffer += data.decode("utf-8")
             while "\n" in buffer:
                 msg, buffer = buffer.split("\n", 1)
