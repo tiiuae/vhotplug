@@ -1,7 +1,6 @@
 import socket
 import json
 import logging
-import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -15,6 +14,15 @@ class APIClient:
         self.cid = cid
         self.path = path
         self.sock = None
+
+    def clone(self):
+        return APIClient(
+            transport=self.transport,
+            host=self.host,
+            port=self.port,
+            cid=self.cid,
+            path=self.path,
+        )
 
     def connect(self):
         try:
@@ -72,6 +80,7 @@ class APIClient:
     def close(self):
         if self.sock:
             self.sock.close()
+            self.sock = None
 
     def enable_notifications(self):
         response = self.send({"action": "enable_notifications"})
@@ -105,36 +114,29 @@ class APIClient:
     def usb_resume(self):
         return self.send({"action": "usb_resume"})
 
-    # pylint: disable=too-many-positional-arguments
-    @classmethod
-    def recv_notifications(cls, callback, host="127.0.0.1", port=2000, cid=2, transport="vsock", reconnect_delay=3):
-        client = cls(host=host, port=port, cid=cid, transport=transport)
-        def _listener():
-            while True:
-                try:
-                    client.connect()
-                    client.enable_notifications()
+    def recv_notifications(self, callback, reconnect_delay=3):
+        while True:
+            try:
+                client = self.clone()
+                client.connect()
+                client.enable_notifications()
 
-                    buffer = ""
-                    while True:
-                        data = client.sock.recv(4096)
-                        if not data:
-                            raise ConnectionError("API connection for notifications closed by remote")
-                        buffer += data.decode("utf-8")
-                        while "\n" in buffer:
-                            msg, buffer = buffer.split("\n", 1)
-                            try:
-                                parsed = json.loads(msg)
-                                callback(parsed)
-                            except ValueError:
-                                logger.error("Invalid JSON in API notification: %s", msg)
-                except OSError as e:
-                    logger.warning("Notification listener error: %s", e)
-                    logger.warning("Reconnecting in %s sec...", reconnect_delay)
-                finally:
-                    client.close()
-                    time.sleep(reconnect_delay)
-
-        thread = threading.Thread(target=_listener, daemon=True)
-        thread.start()
-        return thread
+                buffer = ""
+                while True:
+                    data = client.sock.recv(4096)
+                    if not data:
+                        raise ConnectionError("API connection for notifications closed by remote")
+                    buffer += data.decode("utf-8")
+                    while "\n" in buffer:
+                        msg, buffer = buffer.split("\n", 1)
+                        try:
+                            parsed = json.loads(msg)
+                            callback(parsed)
+                        except ValueError:
+                            logger.error("Invalid JSON in API notification: %s", msg)
+            except OSError as e:
+                logger.warning("Notification listener error: %s", e)
+                logger.warning("Reconnecting in %s sec...", reconnect_delay)
+            finally:
+                client.close()
+                time.sleep(reconnect_delay)

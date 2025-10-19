@@ -66,6 +66,10 @@ def usb_resume(client: APIClient):
         raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
     logger.info("Successfully resumed")
 
+def listen_for_notifications(client: APIClient):
+    logger.info("Listening for notifications")
+    client.recv_notifications(callback=logger.info)
+
 def running_in_vm():
     try:
         with open("/dev/vsock", "rb") as fd:
@@ -118,6 +122,9 @@ def main():
     usb_resume_parser = usb_sub.add_parser("resume", help="USB resume")
     usb_resume_parser.set_defaults(func=lambda a, c: usb_resume(c))
 
+    listen_parser = subparsers.add_parser("listen", help="Listen for notifications")
+    listen_parser.set_defaults(func=lambda a, c: listen_for_notifications(c))
+
     args = parser.parse_args()
 
     # Setup logging
@@ -132,7 +139,9 @@ def main():
         transport = args.transport or ("vsock" if running_in_vm() else "unix")
         client = APIClient(transport=transport, path=args.path, host=args.host, port=args.net_port, cid=args.cid)
         args.func(args, client)
-        return 0
     except (RuntimeError, ValueError, OSError) as e:
         logger.error(str(e))
         return 1
+    except KeyboardInterrupt:
+        logger.info("Exiting")
+    return 0
