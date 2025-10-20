@@ -19,11 +19,13 @@ API is enabled by adding the following parameters to the "general" section in th
     "enable": true,
     "host": "0.0.0.0",
     "port": 2000,
-    "transport": "tcp"
+    "unixSocket": "/var/lib/vhotplug/vhotplug.sock",
+    "transports": ["tcp", "vsock", "unix"],
+    "allowedCids": [3, 4, 5]
 }
 ```
 
-Transport can be either "tcp" or "vsock".
+Supported transports: "tcp", "vsock", "unix".
 
 # USB device
 
@@ -38,8 +40,8 @@ When a USB device is represented in the API, it may contain the following fields
     "pid": "2222",
     "vendor_name": "Manufacturer",
     "product_name": "Product",
-    "vm": "vm1",
     "allowed_vms": ["vm1", "vm2"],
+    "vm": "vm1",
     ...
 }
 ```
@@ -55,7 +57,6 @@ Request: `{"action": "enable_notifications"}`
 
 Response: `{"result": "ok"}`
 
-
 ## Get a list of USB devices
 
 Request: `{"action": "usb_list"}`
@@ -64,17 +65,53 @@ Response: `{"result": "ok", "usb_devices": [{...}, {...}]}`
 
 ## Attach a USB device to a VM
 
+### Attach using device node
+
 Request: `{"action": "usb_attach", "device_node": "/dev/bus/usb/003/078", "vm": "vm1"}`
+
+Response: `{"result": "ok"}`
+
+### Attach using bus and port
+
+Request: `{"action": "usb_attach", "bus": "1", "port": "2", "vm": "vm1"}`
+
+Response: `{"result": "ok"}`
+
+### Attach using vendor ID and product ID
+
+Request: `{"action": "usb_attach", "vid": "1111", "pid": "2222", "vm": "vm1"}`
 
 Response: `{"result": "ok"}`
 
 ## Detach a USB device from a VM
 
+### Detach using device node
+
 Request: `{"action": "usb_detach", "device_node": "/dev/bus/usb/003/078"}`
 
 Response: `{"result": "ok"}`
 
+### Detach using bus and port
+
+Request: `{"action": "usb_detach", "bus": "1", "port": "2"}`
+
+Response: `{"result": "ok"}`
+
+### Detach using vendor ID and product ID
+
+Request: `{"action": "usb_detach", "vid": "1111", "pid": "2222"}`
+
+Response: `{"result": "ok"}`
+
 # Notifications
+
+## USB device connected to host
+
+`{"event": "usb_connected", "usb_device": {...}}`
+
+## USB device disconnected from host
+
+`{"event": "usb_disconnected", "usb_device": {...}}`
 
 ## USB device attached to a VM
 

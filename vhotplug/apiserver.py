@@ -22,7 +22,7 @@ class APIServer:
         self.port = api_config.get("port", 2000)
         self.allowed_cids = api_config.get("allowedCids")
         self.cid = socket.VMADDR_CID_ANY
-        self.uds_path = api_config.get("unix_socket", "/var/lib/vhotplug/vhotplug.sock")
+        self.uds_path = api_config.get("unixSocket", "/var/lib/vhotplug/vhotplug.sock")
         self.server_sockets = []
         self.running = False
         self.clients = []
