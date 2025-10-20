@@ -159,6 +159,12 @@ class APIServer:
     def notify_usb_select_vm(self, usb_info, allowed_vms):
         self.notify({"event": "usb_select_vm", "usb_device": usb_info.to_dict(), "allowed_vms": allowed_vms})
 
+    def notify_usb_connected(self, usb_info):
+        self.notify({"event": "usb_connected", "usb_device": usb_info.to_dict()})
+
+    def notify_usb_disconnected(self, usb_info):
+        self.notify({"event": "usb_disconnected", "usb_device": { "device_node": usb_info.device_node }})
+
     def handle_message(self, client_sock, client_addr, msg):
         action = msg.get("action")
         handler = self.handlers.get(action)

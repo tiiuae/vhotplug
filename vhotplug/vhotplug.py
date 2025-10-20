@@ -30,10 +30,16 @@ async def device_event(app_context, device):
             usb_info = get_usb_info(device)
             logger.info("USB device %s connected: %s", usb_info.friendly_name(), device.device_node)
             logger.info('Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"', usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol, usb_info.interfaces)
+
+            # Notify that USB device is connected to host
+            if app_context.api_server:
+                app_context.api_server.notify_usb_connected(usb_info)
+
             try:
                 await attach_usb_device(app_context, usb_info, True)
             except RuntimeError as e:
                 logger.error("Failed to attach device %s: %s", device.device_node, e)
+
     elif device.action == 'remove':
         logger.debug("Device unplugged: %s", device.sys_name)
         logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
@@ -45,6 +51,11 @@ async def device_event(app_context, device):
                 await remove_usb_device(app_context, usb_info)
             except RuntimeError as e:
                 logger.error("Failed to detach device %s: %s", device.device_node, e)
+
+            # Notify that USB device is disconnected from host
+            if app_context.api_server:
+                app_context.api_server.notify_usb_disconnected(usb_info)
+
     elif device.action == 'change':
         logger.debug("Device changed: %s", device.sys_name)
         logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)

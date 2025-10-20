@@ -139,9 +139,6 @@ async def attach_usb_device(app_context, usb_info, ask):
     if not target_vm:
         logger.info("Found multiple VMs for %s", usb_info.friendly_name())
         if ask:
-            # Send a notification without a VM name and then ask for VM selection
-            if app_context.api_server:
-                app_context.api_server.notify_usb_attached(usb_info, None)
             logger.info("Sending an API request to select a VM")
             if app_context.api_server:
                 app_context.api_server.notify_usb_select_vm(usb_info, allowed_vms)
