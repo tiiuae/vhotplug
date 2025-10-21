@@ -164,7 +164,7 @@ async def attach_usb_device_to_vm(app_context, usb_info, vm_name):
     if current_vm_name and current_vm_name != vm_name:
         logger.warning("Device is attached to %s, removing...", current_vm_name)
         try:
-            remove_usb_device(app_context, usb_info)
+            await remove_usb_device(app_context, usb_info)
         except RuntimeError as e:
             logger.warning("Failed to remove: %s", e)
 
