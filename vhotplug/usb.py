@@ -1,10 +1,13 @@
 from typing import NamedTuple, Optional, List
 import logging
+import psutil
+import pyudev
 
 logger = logging.getLogger("vhotplug")
 
 class USBInfo(NamedTuple):
     device_node: Optional[str] = None
+
     vid: Optional[str] = None
     pid: Optional[str] = None
     vendor_name: Optional[str] = None
@@ -37,15 +40,36 @@ class USBInfo(NamedTuple):
             "sys_name": self.sys_name
         }
 
-    def dev_id(self):
-        return f"usb{self.busnum}{self.devnum}"
-
     def friendly_name(self):
-        return f"{self.vid}:{self.pid} ({self.vendor_name} {self.product_name})"
+        if self.vid and self.pid:
+            return f"{self.vid}:{self.pid} ({self.vendor_name} {self.product_name})"
+        return self.device_node
+
+    def runtime_id(self) -> str:
+        return f"usb-{self.device_node}"
+
+    def persistent_id(self) -> str:
+        return f"usb-{self.vid}:{self.pid}:{self.serial}"
 
     @property
     def root_port(self):
         return self.ports[0] if self.ports else None # pylint: disable=unsubscriptable-object
+
+    def is_boot_device(self, context):
+        # Find device partitions
+        for udevpart in context.list_devices(subsystem="block", DEVTYPE="partition"):
+            parent = udevpart.find_parent("usb", "usb_device")
+            if parent and parent.device_node == self.device_node:
+                logger.debug("USB drive %s has partition %s", self.device_node, udevpart.device_node)
+                # Find mountpoints
+                partitions = psutil.disk_partitions(all=True)
+                for part in partitions:
+                    if part.device == udevpart.device_node:
+                        logger.debug("Found mountpoint %s with filesystem %s", part.mountpoint, part.fstype)
+                        logger.debug("Options: %s", part.opts)
+                        if part.mountpoint == "/boot":
+                            return True
+        return False
 
 def _bytes_to_int(data):
     if not data:
@@ -108,3 +132,31 @@ def is_usb_hub(interfaces):
         if interface_class == 9:
             return True
     return False
+
+def is_usb_device(device):
+    return device.subsystem == "usb" and device.device_type == "usb_device"
+
+def find_usb_parent(device):
+    return device.find_parent(subsystem="usb", device_type="usb_device")
+
+def usb_device_by_node(app_context, device_node):
+    try:
+        return pyudev.Devices.from_device_file(app_context.udev_context, device_node)
+    except pyudev.DeviceNotFoundError:
+        return None
+
+def usb_device_by_bus_port(app_context, bus, port):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
+        if is_usb_device(device):
+            usb_info = get_usb_info(device)
+            if usb_info.busnum == bus and usb_info.root_port == port:
+                return device
+    return None
+
+def usb_device_by_vid_pid(app_context, vid, pid):
+    for device in app_context.udev_context.list_devices(subsystem='usb'):
+        if is_usb_device(device):
+            usb_info = get_usb_info(device)
+            if usb_info.vid.casefold() == vid.casefold() and usb_info.pid.casefold() == pid.casefold():
+                return device
+    return None

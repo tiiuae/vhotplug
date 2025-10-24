@@ -75,6 +75,23 @@
             ]
         }
     ],
+    "pciPassthrough": [
+        {
+            "description": "Devices for VM1",
+            "targetVm": "vm1",
+            "allow": [
+                {
+                    "address": "0000:00:14.3",
+                    "description": "Intel WiFi card"
+                },
+                {
+                    "vendorId": "8086",
+                    "deviceId": "a7a1",
+                    "description": "Intel Iris GPU"
+                }
+            ]
+        }
+    ],
     "evdevPassthrough": {
         "pcieBusPrefix": "ep",
         "targetVm": "vm1"
@@ -93,7 +110,7 @@
     ],
     "general" : {
         "api": {
-            "enable": true,
+            "enable": false,
             "host": "127.0.0.1",
             "port": 2000,
             "transports": ["tcp", "vsock", "unix"]

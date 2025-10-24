@@ -103,6 +103,40 @@ Request: `{"action": "usb_detach", "vid": "1111", "pid": "2222"}`
 
 Response: `{"result": "ok"}`
 
+## Get a list of PCI devices
+
+Request: `{"action": "pci_list"}`
+
+Response: `{"result": "ok", "pci_devices": [{...}, {...}]}`
+
+## Attach a PCI device to a VM
+
+### Attach using address
+
+Request: `{"action": "pci_attach", "address": "0000:00:01.0", "vm": "vm1"}`
+
+Response: `{"result": "ok"}`
+
+### Attach using vendor ID and device ID
+
+Request: `{"action": "pci_attach", "vid": "1111", "did": "2222", "vm": "vm1"}`
+
+Response: `{"result": "ok"}`
+
+## Detach a PCI device from a VM
+
+### Detach using PCI address
+
+Request: `{"action": "pci_detach", "address": "0000:00:01.0"}`
+
+Response: `{"result": "ok"}`
+
+### Detach using vendor ID and device ID
+
+Request: `{"action": "pci_detach", "vid": "1111", "did": "2222"}`
+
+Response: `{"result": "ok"}`
+
 # Notifications
 
 ## USB device connected to host
@@ -124,3 +158,11 @@ Response: `{"result": "ok"}`
 ## VM needs to be selected for a USB device
 
 `{"event": "usb_select_vm", "usb_device": {...}, "allowed_vms": ["vm1", "vm2"]}`
+
+## PCI device attached to a VM
+
+`{"event": "pci_attached", "pci_device": {...}, "vm": "vm1"}`
+
+## PCI device detached from a VM
+
+`{"event": "pci_detached", "pci_device": {...}, "vm": "vm1"}`
