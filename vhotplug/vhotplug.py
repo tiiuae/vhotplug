@@ -5,11 +5,12 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 import pyudev
-from vhotplug.device import attach_usb_device, remove_usb_device, log_device, is_usb_device, get_usb_info, attach_connected_evdev, attach_connected_devices
+from vhotplug.device import attach_device, remove_device, log_device, is_usb_device, get_usb_info, attach_connected_usb, attach_connected_pci
+from vhotplug.evdev import attach_connected_evdev
 from vhotplug.config import Config
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.apiserver import APIServer
-from vhotplug.usbstate import USBState
+from vhotplug.devicestate import DeviceState
 
 logger = logging.getLogger("vhotplug")
 
@@ -18,7 +19,7 @@ class AppContext:
     config: object
     udev_monitor: object
     udev_context: object
-    usb_state: object
+    dev_state: object
     api_server: Optional[object] = None
 
 async def device_event(app_context, device):
@@ -36,7 +37,7 @@ async def device_event(app_context, device):
                 app_context.api_server.notify_usb_connected(usb_info)
 
             try:
-                await attach_usb_device(app_context, usb_info, True)
+                await attach_device(app_context, usb_info, True)
             except RuntimeError as e:
                 logger.error("Failed to attach device %s: %s", device.device_node, e)
 
@@ -48,7 +49,7 @@ async def device_event(app_context, device):
             usb_info = get_usb_info(device)
             logger.info("USB device disconnected: %s", device.device_node)
             try:
-                await remove_usb_device(app_context, usb_info)
+                await remove_device(app_context, usb_info)
             except RuntimeError as e:
                 logger.error("Failed to detach device %s: %s", device.device_node, e)
 
@@ -76,7 +77,9 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
             if vm and vm.get("socket") in vms_restarted:
                 await attach_connected_evdev(app_context)
             # Check all USB devices
-            await attach_connected_devices(app_context)
+            await attach_connected_usb(app_context)
+            # Check all PCI devices
+            await attach_connected_pci(app_context)
 
 async def async_main():
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
@@ -105,9 +108,9 @@ async def async_main():
         if vm_socket:
             file_watcher.add_file(vm_socket)
 
-    usb_state = USBState(config.persistency_enabled(), config.state_path())
+    dev_state = DeviceState(config.persistency_enabled(), config.state_path())
 
-    app_context = AppContext(config, udev_monitor, udev_context, usb_state)
+    app_context = AppContext(config, udev_monitor, udev_context, dev_state)
 
     api_server = None
     if config.api_enabled():
@@ -119,7 +122,9 @@ async def async_main():
         # Check all evdev input devices devices and attach to VMs
         await attach_connected_evdev(app_context)
         # Check all USB devices devices and attach to VMs
-        await attach_connected_devices(app_context)
+        await attach_connected_usb(app_context)
+        # Check all PCI devices devices and attach to VMs
+        await attach_connected_pci(app_context)
 
     logger.info("Waiting for new devices")
     await monitor_loop(app_context, file_watcher, args.attach_connected)

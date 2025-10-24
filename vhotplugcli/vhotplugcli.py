@@ -70,6 +70,60 @@ def listen_for_notifications(client: APIClient):
     logger.info("Listening for notifications")
     client.recv_notifications(callback=logger.info)
 
+def pci_attach(client: APIClient, address, vid, did, vm):
+    if not address and not (vid and did):
+        raise RuntimeError("You must specify either --address or --vid and --did")
+
+    client.connect()
+    if address:
+        res = client.pci_attach(address, vm)
+    else:
+        res = client.pci_attach_by_vid_did(vid, did, vm)
+
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to attach PCI: {res.get('error')}")
+    logger.info("Successfully attached")
+
+def pci_detach(client: APIClient, address, vid, did):
+    if not address and not (vid and did):
+        raise RuntimeError("You must specify either --address or --vid and --did")
+
+    client.connect()
+    if address:
+        res = client.pci_detach(address)
+    else:
+        res = client.pci_detach_by_vid_did(vid, did)
+
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to detach PCI: {res.get('error')}")
+    logger.info("Successfully detached")
+
+def pci_list(client: APIClient):
+    client.connect()
+    res = client.pci_list()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to get PCI list: {res.get('error')}")
+    logger.debug("PCI list: %s", res)
+    for dev in res.get("pci_devices", []):
+        print(f"PCI Device: {dev['vendor_id']}:{dev['device_id']} {dev['vendor_name']} {dev['device_name']}")
+        for key, value in dev.items():
+            print(f"  {key:<16}: {value}")
+        print()
+
+def pci_suspend(client: APIClient):
+    client.connect()
+    res = client.pci_suspend()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to suspend PCI: {res.get('error')}")
+    logger.info("Successfully suspended")
+
+def pci_resume(client: APIClient):
+    client.connect()
+    res = client.pci_resume()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to resume PCI: {res.get('error')}")
+    logger.info("Successfully resumed")
+
 def running_in_vm():
     try:
         with open("/dev/vsock", "rb") as fd:
@@ -81,6 +135,7 @@ def running_in_vm():
     except OSError:
         return False
 
+# pylint: disable=too-many-locals,too-many-statements
 def main():
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
@@ -124,6 +179,31 @@ def main():
 
     listen_parser = subparsers.add_parser("listen", help="Listen for notifications")
     listen_parser.set_defaults(func=lambda a, c: listen_for_notifications(c))
+
+    pci_parser = subparsers.add_parser("pci", help="Manage PCI devices")
+    pci_sub = pci_parser.add_subparsers(dest="action", required=True)
+
+    pci_attach_parser = pci_sub.add_parser("attach", help="Attach PCI device")
+    pci_attach_parser.add_argument("--address", help="PCI Address (e.g., 0000:00:01.0)")
+    pci_attach_parser.add_argument("--vid", help="USB Vendor ID")
+    pci_attach_parser.add_argument("--did", help="USB Device ID")
+    pci_attach_parser.add_argument("--vm", help="Virtual machine name")
+    pci_attach_parser.set_defaults(func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm))
+
+    pci_detach_parser = pci_sub.add_parser("detach", help="Detach PCI device")
+    pci_detach_parser.add_argument("--address", help="PCI Address (e.g., 0000:00:01.0)")
+    pci_detach_parser.add_argument("--vid", help="PCI Vendor ID")
+    pci_detach_parser.add_argument("--did", help="PCI Device ID")
+    pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did))
+
+    usb_list_parser = pci_sub.add_parser("list", help="Get PCI list")
+    usb_list_parser.set_defaults(func=lambda a, c: pci_list(c))
+
+    pci_suspend_parser = pci_sub.add_parser("suspend", help="PCI suspend")
+    pci_suspend_parser.set_defaults(func=lambda a, c: pci_suspend(c))
+
+    pci_resume_parser = pci_sub.add_parser("resume", help="PCI resume")
+    pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c))
 
     args = parser.parse_args()
 

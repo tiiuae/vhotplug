@@ -74,7 +74,7 @@ class CrosvmLink:
         logger.error("Failed to add USB device %s after %s attempts", dev_node, i)
         raise RuntimeError("Timeout")
 
-    async def remove_usb_device(self, dev_id):
+    async def remove_usb_device_by_id(self, dev_id):
         try:
             logger.info("Detaching USB device %s from %s", dev_id, self.socket_path)
             result = subprocess.run([self.crosvm_bin, "usb", "detach", str(dev_id), self.socket_path], capture_output=True, text=True, check=False)
@@ -122,3 +122,16 @@ class CrosvmLink:
         except OSError as e:
             logger.error("Failed to list USB devices: %s", e)
         return devices
+
+    async def remove_usb_device(self, usb_info):
+        devices = await self.usb_list()
+        for index, crosvm_vid, crosvm_pid in devices:
+            if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
+                logger.debug("Removing %s from %s", index, self.socket_path)
+                await self.remove_usb_device_by_id(index)
+
+    async def add_pci_device(self, _pci_info):
+        raise RuntimeError("Not implemented")
+
+    async def remove_pci_device(self, _pci_info):
+        raise RuntimeError("Not implemented")

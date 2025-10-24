@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from vhotplug.usb import parse_usb_interfaces
+from vhotplug.usb import parse_usb_interfaces, USBInfo
 
 logger = logging.getLogger("vhotplug")
 
@@ -14,9 +14,23 @@ class Config:
         with open(self.path, "r", encoding="utf-8") as file:
             return json.load(file)
 
+    def _disabled(self, node, default=False):
+        if "disable" in node:
+            return bool(node["disable"])
+        if "enable" in node:
+            return not bool(node["enable"])
+        return default
+
+    def _enabled(self, node, default=True):
+        if "enable" in node:
+            return bool(node["enable"])
+        if "disable" in node:
+            return not bool(node["disable"])
+        return default
+
     # pylint: disable = too-many-locals, too-many-return-statements
-    def match(self, usb_info, usb_rule):
-        if usb_rule.get("disable") is True:
+    def _match_usb(self, usb_info, usb_rule):
+        if self._disabled(usb_rule):
             return False
 
         rule_description = usb_rule.get("description")
@@ -56,7 +70,7 @@ class Config:
         rule_device_class = usb_rule.get("deviceClass")
         rule_device_subclass = usb_rule.get("deviceSubclass")
         rule_device_protocol = usb_rule.get("deviceProtocol")
-        logger.debug("Checking device class %s, subclass %s, protocol %s", usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol)
+        logger.debug("Checking USB class %s, subclass %s, protocol %s", usb_info.device_class, usb_info.device_subclass, usb_info.device_protocol)
         if rule_device_class and rule_device_class == usb_info.device_class:
             subclass_match = not rule_device_subclass or rule_device_subclass == usb_info.device_subclass
             protocol_match = not rule_device_protocol or rule_device_protocol == usb_info.device_protocol
@@ -74,61 +88,103 @@ class Config:
             interface_class = interface["class"]
             interface_subclass = interface["subclass"]
             interface_protocol = interface["protocol"]
-            logger.debug("Checking usb interface class %s, subclass %s, protocol %s", interface_class, interface_subclass, interface_protocol)
+            logger.debug("Checking USB interface class %s, subclass %s, protocol %s", interface_class, interface_subclass, interface_protocol)
             if rule_interface_class and rule_interface_class == interface_class:
                 subclass_match = not rule_interface_subclass or rule_interface_subclass == interface_subclass
                 protocol_match = not rule_interface_protocol or rule_interface_protocol == interface_protocol
                 if subclass_match and protocol_match:
                     logger.debug("Match by USB interface class, description: %s", rule_description)
                     return True
+
         return False
 
-    def vm_for_usb_device(self, usb_info):
-        try:
-            usb_dev_name = usb_info.friendly_name()
-            logger.debug("Searching for a VM for %s", usb_dev_name)
+    def _match_pci(self, pci_info, rule):
+        if self._disabled(rule):
+            return False
 
-            for usb_rule in self.config.get("usbPassthrough", []):
-                rule_name = usb_rule.get("description")
-                if usb_rule.get("disable") is True:
+        rule_description = rule.get("description")
+        logger.debug("Rule: %s", rule_description)
+
+        # Match by address
+        rule_address = rule.get("address")
+        logger.debug("Checking %s against %s", pci_info.address, rule_address)
+        address_match = rule_address and pci_info.address and pci_info.address.casefold() == rule_address.casefold()
+        if address_match:
+            logger.debug("Match by address, description: %s", rule_description)
+            return True
+
+        # Match by VID/DID
+        rule_vid = rule.get("vendorId")
+        rule_did = rule.get("deviceId")
+        logger.debug("Checking %s:%s against %s:%s", pci_info.vendor_id, pci_info.device_id, rule_vid, rule_did)
+        vid_match = rule_vid and pci_info.vendor_id and pci_info.vendor_id.casefold() == rule_vid.casefold()
+        did_match = rule_did and pci_info.device_id and pci_info.device_id.casefold() == rule_did.casefold()
+        if vid_match and did_match:
+            logger.debug("Match by vendor id / device id, description: %s", rule_description)
+            return True
+
+        # Match by PCI class, subclass and programming interface
+        rule_device_class = rule.get("deviceClass")
+        rule_device_subclass = rule.get("deviceSubclass")
+        rule_device_prog_if = rule.get("deviceProgIf")
+        logger.debug("Checking PCI class %s, subclass %s, prog if %s", pci_info.pci_class, pci_info.pci_subclass, pci_info.pci_prog_if)
+        if rule_device_class and rule_device_class == pci_info.pci_class:
+            subclass_match = not rule_device_subclass or rule_device_subclass == pci_info.pci_subclass
+            prog_if_match = not rule_device_prog_if or rule_device_prog_if == pci_info.pci_prog_if
+            if subclass_match and prog_if_match:
+                logger.debug("Match by PCI class, description: %s", rule_description)
+                return True
+
+        return False
+
+    def vm_for_device(self, dev_info):
+        try:
+            dev_name = dev_info.friendly_name()
+            logger.debug("Searching for a VM for %s", dev_name)
+
+            is_usb_dev = isinstance(dev_info, USBInfo)
+            node_name = "usbPassthrough" if is_usb_dev else "pciPassthrough"
+            match = self._match_usb if is_usb_dev else self._match_pci
+
+            for rule in self.config.get(node_name, []):
+                rule_name = rule.get("description")
+                if self._disabled(rule):
                     continue
 
                 found = False
-                for allow in usb_rule.get("allow", []):
-                    if self.match(usb_info, allow):
+                for allow in rule.get("allow", []):
+                    if match(dev_info, allow):
                         found = True
                         break
 
-                for deny in usb_rule.get("deny", []):
-                    if self.match(usb_info, deny):
+                for deny in rule.get("deny", []):
+                    if match(dev_info, deny):
                         found = False
                         break
 
                 if found:
-                    target_vm = usb_rule.get("targetVm")
-                    allowed_vms = usb_rule.get("allowedVms")
+                    target_vm = rule.get("targetVm")
+                    allowed_vms = rule.get("allowedVms")
                     if target_vm:
-                        logger.debug("Found VM %s for %s", target_vm, usb_dev_name)
+                        logger.debug("Found VM %s for %s", target_vm, dev_name)
                     elif allowed_vms:
-                        logger.debug("Found allowed VMs %s for %s", allowed_vms, usb_dev_name)
+                        logger.debug("Found allowed VMs %s for %s", allowed_vms, dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
                     return (target_vm, allowed_vms)
 
         except (AttributeError, TypeError) as e:
-            logger.error("Failed to find VM for USB device in the configuration file: %s", e)
+            logger.error("Failed to find VM for device in the configuration file: %s", e)
         return (None, None)
 
     def vm_for_evdev_devices(self):
         try:
             evdev = self.config.get("evdevPassthrough")
-            if evdev:
+            if evdev and self._disabled(evdev) is not True:
                 vm_name = evdev.get("targetVm")
-                disable = evdev.get("disable", False)
-                if disable is not True:
-                    logger.debug("Found VM %s for evdev passthrough", vm_name)
-                    bus_prefix = evdev.get("pcieBusPrefix")
-                    return self.get_vm(vm_name), bus_prefix
+                logger.debug("Found VM %s for evdev passthrough", vm_name)
+                bus_prefix = evdev.get("pcieBusPrefix")
+                return self.get_vm(vm_name), bus_prefix
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for evdev device in the configuration file: %s", e)
         return None, None
@@ -143,7 +199,7 @@ class Config:
         return None
 
     def api_enabled(self):
-        return self.config.get("general", {}).get("api", {}).get("enable", False)
+        return self._enabled(self.config.get("general", {}).get("api", {}))
 
     def persistency_enabled(self):
         return self.config.get("general", {}).get("persistency", True)

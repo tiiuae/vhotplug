@@ -5,6 +5,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# pylint: disable=too-many-public-methods
 class APIClient:
     # pylint: disable=too-many-positional-arguments
     def __init__(self, host="127.0.0.1", port=2000, cid=2, transport="vsock", path="/var/lib/vhotplug/vhotplug.sock"):
@@ -113,6 +114,27 @@ class APIClient:
 
     def usb_resume(self):
         return self.send({"action": "usb_resume"})
+
+    def pci_list(self):
+        return self.send({"action": "pci_list"})
+
+    def pci_attach(self, address, vm):
+        return self.send({"action": "pci_attach", "address": address, "vm": vm})
+
+    def pci_attach_by_vid_did(self, vid, did, vm):
+        return self.send({"action": "pci_attach", "vid": vid, "did": did, "vm": vm})
+
+    def pci_detach(self, address):
+        return self.send({"action": "pci_detach", "address": address})
+
+    def pci_detach_by_vid_did(self, vid, did):
+        return self.send({"action": "pci_detach", "vid": vid, "did": did})
+
+    def pci_suspend(self):
+        return self.send({"action": "pci_suspend"})
+
+    def pci_resume(self):
+        return self.send({"action": "pci_resume"})
 
     def recv_notifications(self, callback, reconnect_delay=3):
         while True:

@@ -1,6 +1,6 @@
 # vhotplug
 
-This application runs as a service on the host, monitors device add/remove events using libudev and dynamically attaches USB devices to virtual machines based on rules defined in a configuration file.
+This application runs as a service on the host, monitors device add/remove events using libudev and dynamically attaches devices to virtual machines based on rules defined in a configuration file.
 
 # Features
 
@@ -9,12 +9,17 @@ This application runs as a service on the host, monitors device add/remove event
 - Uses libudev for device monitoring on the host.
 - No extra udev configuration is required.
 - Different device types can be assigned to different virtual machines.
+- Supports USB and PCI devices.
 - Supports evdev passthrough (virtio-input-host-pci) of non-USB input devices for QEMU.
 
 # Rule Matching
 
-Device assignment is based on rules defined in the configuration file.
-Each rule can match devices using one or more of the following parameters:
+Device assignment is based on rules defined in the configuration file. Each rule can match devices using one or more parameters.
+The same parameters can be used in allow and deny rule sets. Only the fields present in a rule are used for matching. If multiple rules match a device, the first match is used.
+
+# USB Devices
+
+The following parameters can be used for USB passthrough:
 - vendorId — USB vendor ID (e.g., "0bda")
 - productId — USB product ID (e.g., "4852")
 - vendorName — Vendor name (from udev or USB database, supports regular expressions)
@@ -28,10 +33,18 @@ Each rule can match devices using one or more of the following parameters:
 - deviceSubclass — USB device subclass (e.g., 1)
 - deviceProtocol — USB device protocol (e.g., 1)
 
-The same parameters can be used in allow and deny rule sets. Only the fields present in a rule are used for matching. If multiple rules match a device, the first match is used.
-
 Note: Many USB devices are composite devices, meaning they expose multiple interfaces. When matching against interfaceClass, interfaceSubclass and interfaceProtocol, it is sufficient for at least one interface to match the rule.
 In practice, matching by interfaces is often more reliable than using deviceClass, since many real-world USB devices leave the device-level class fields unset or use generic values like 0 (defined at the interface level instead).
+
+# PCI Devices
+
+The following parameters can be used for PCI passthrough:
+- address — PCI address (e.g. "0000:00:14.3")
+- vendorId — PCI vendor ID (e.g., "8086")
+- deviceId — PCI device ID (e.g., "a7a1")
+- deviceClass — PCI device class (e.g., 2)
+- deviceSubclass — PCI device subclass (e.g., 128)
+- deviceProgIf — PCI device programming interface (e.g., 0)
 
 # Example
 
@@ -93,6 +106,23 @@ options:
                     "vendorId": "0b95",
                     "productId": "1790",
                     "description": "AX88179 Gigabit Ethernet"
+                }
+            ]
+        }
+    ],
+     "pciPassthrough": [
+        {
+            "description": "Devices for VM1",
+            "targetVm": "vm1",
+            "allow": [
+                {
+                    "address": "0000:00:14.3",
+                    "description": "Intel WiFi card"
+                },
+                {
+                    "vendorId": "8086",
+                    "deviceId": "a7a1",
+                    "description": "Intel Iris GPU"
                 }
             ]
         }

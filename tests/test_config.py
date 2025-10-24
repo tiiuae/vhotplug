@@ -3,7 +3,7 @@ from vhotplug.usb import USBInfo
 
 def test_input():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             interfaces=":030101:030102:030000:"
         )
@@ -12,7 +12,7 @@ def test_input():
 
 def test_input_ignore_vid_pid():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="046d",
             pid="c52b",
@@ -25,7 +25,7 @@ def test_input_ignore_vid_pid():
 
 def test_ethernet_product_name():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             product_name="Some ethernet device"
         )
@@ -34,7 +34,7 @@ def test_ethernet_product_name():
 
 def test_ethernet_ignore_vid_pid():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="0b95",
             pid="1790",
@@ -47,7 +47,7 @@ def test_ethernet_ignore_vid_pid():
 
 def test_disabled():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="067b",
             pid="23a3"
@@ -57,7 +57,7 @@ def test_disabled():
 
 def test_audio():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             interfaces=":010100:"
         )
@@ -66,7 +66,7 @@ def test_audio():
 
 def test_audio_and_video():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             interfaces=":010100:0e0100:"
         )
@@ -75,7 +75,7 @@ def test_audio_and_video():
 
 def test_webcam():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="04f2",
             pid="b751",
@@ -88,7 +88,7 @@ def test_webcam():
 
 def test_ssd():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="04e8",
             pid="61f5",
@@ -101,7 +101,7 @@ def test_ssd():
 
 def test_hub():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="1d6b",
             pid="0002",
@@ -114,7 +114,7 @@ def test_hub():
 
 def test_bluetooth():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             vid="0bda",
             pid="4852",
@@ -130,7 +130,7 @@ def test_bluetooth():
 
 def test_bus_port():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             busnum=11,
             ports=[22, 33, 44]
@@ -140,7 +140,7 @@ def test_bus_port():
 
 def test_wrong_bus_port():
     config = Config("config.json")
-    (target_vm, allowed_vms) = config.vm_for_usb_device(
+    (target_vm, allowed_vms) = config.vm_for_device(
         USBInfo(
             busnum=11,
             ports=[33, 22, 44]

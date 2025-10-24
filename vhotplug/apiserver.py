@@ -4,9 +4,10 @@ import json
 import logging
 import asyncio
 import os
-from vhotplug.device import (get_usb_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
+from vhotplug.device import (get_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
     remove_existing_usb_device, remove_existing_usb_device_by_bus_port, remove_existing_usb_device_by_vid_pid,
-    attach_connected_devices, detach_connected_devices
+    attach_connected_usb, detach_connected_usb, attach_connected_pci, detach_connected_pci,
+    attach_existing_pci_device, attach_existing_pci_device_by_vid_did, remove_existing_pci_device, remove_existing_pci_device_by_vid_did,
 )
 
 logger = logging.getLogger("vhotplug")
@@ -37,6 +38,11 @@ class APIServer:
             "usb_detach": self._on_usb_detach,
             "usb_suspend": self._on_usb_suspend,
             "usb_resume": self._on_usb_resume,
+            "pci_list": self._on_pci_list,
+            "pci_attach": self._on_pci_attach,
+            "pci_detach": self._on_pci_detach,
+            "pci_suspend": self._on_pci_suspend,
+            "pci_resume": self._on_pci_resume,
         }
 
     def start(self):
@@ -156,6 +162,12 @@ class APIServer:
     def notify_usb_detached(self, usb_info, vm_name):
         self.notify({"event": "usb_detached", "usb_device": {"device_node": usb_info.device_node}, "vm": vm_name})
 
+    def notify_pci_attached(self, pci_info, vm_name):
+        self.notify({"event": "pci_attached", "pci_device": pci_info.to_dict(), "vm": vm_name})
+
+    def notify_pci_detached(self, pci_info, vm_name):
+        self.notify({"event": "pci_detached", "pci_device": pci_info.to_dict(), "vm": vm_name})
+
     def notify_usb_select_vm(self, usb_info, allowed_vms):
         self.notify({"event": "usb_select_vm", "usb_device": usb_info.to_dict(), "allowed_vms": allowed_vms})
 
@@ -164,6 +176,32 @@ class APIServer:
 
     def notify_usb_disconnected(self, usb_info):
         self.notify({"event": "usb_disconnected", "usb_device": { "device_node": usb_info.device_node }})
+
+    def notify_pci_connected(self, pci_info):
+        self.notify({"event": "pci_connected", "pci_device": pci_info.to_dict()})
+
+    def notify_pci_disconnected(self, pci_info):
+        self.notify({"event": "pci_disconnected", "pci_device": pci_info.device_node })
+
+    def notify_dev_attached(self, dev_info, vm_name, is_usb_dev):
+        if is_usb_dev:
+            return self.notify_usb_attached(dev_info, vm_name)
+        return self.notify_pci_attached(dev_info, vm_name)
+
+    def notify_dev_detached(self, dev_info, vm_name, is_usb_dev):
+        if is_usb_dev:
+            return self.notify_usb_detached(dev_info, vm_name)
+        return self.notify_pci_detached(dev_info, vm_name)
+
+    def notify_dev_connected(self, dev_info, is_usb_dev):
+        if is_usb_dev:
+            return self.notify_usb_connected(dev_info)
+        return self.notify_pci_connected(dev_info)
+
+    def notify_dev_disconnected(self, dev_info, is_usb_dev):
+        if is_usb_dev:
+            return self.notify_usb_disconnected(dev_info)
+        return self.notify_pci_disconnected(dev_info)
 
     def handle_message(self, client_sock, client_addr, msg):
         action = msg.get("action")
@@ -175,7 +213,7 @@ class APIServer:
             logger.info('API request "%s" from %s', action, client_addr)
             return handler(client_sock, client_addr, msg)
         except (RuntimeError, TypeError, ValueError) as e:
-            logger.error("Failed to prcoess API request: %s", e)
+            logger.error("Failed to process API request: %s", e)
             return {"result": "failed", "error": str(e)}
 
     def _on_enable_notifications(self, client_sock, _client_addr, _msg):
@@ -185,7 +223,7 @@ class APIServer:
         return {"result": "ok"}
 
     def _on_usb_list(self, _client_sock, _client_addr, _msg):
-        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
+        return {"result": "ok", "usb_devices": get_devices(self.app_context, True)}
 
     def _on_usb_attach(self, _client_sock, _client_addr, msg):
         device_node = msg.get("device_node")
@@ -198,19 +236,19 @@ class APIServer:
             logger.info("Request to attach %s to %s", device_node, selected_vm)
             asyncio.run_coroutine_threadsafe(
                 attach_existing_usb_device(self.app_context, device_node, selected_vm),
-                self.loop,
+                self.loop
             ).result()
         elif bus and port:
             logger.info("Request to attach by bus %s and port %s to %s", bus, port, selected_vm)
             asyncio.run_coroutine_threadsafe(
                 attach_existing_usb_device_by_bus_port(self.app_context, bus, port, selected_vm),
-                self.loop,
+                self.loop
             ).result()
         else:
             logger.info("Request to attach by vid %s and pid %s to %s", vid, pid, selected_vm)
             asyncio.run_coroutine_threadsafe(
                 attach_existing_usb_device_by_vid_pid(self.app_context, vid, pid, selected_vm),
-                self.loop,
+                self.loop
             ).result()
 
         return {"result": "ok"}
@@ -225,33 +263,89 @@ class APIServer:
             logger.info("Request to detach %s", device_node)
             asyncio.run_coroutine_threadsafe(
                 remove_existing_usb_device(self.app_context, device_node, True),
-                self.loop,
+                self.loop
             ).result()
         elif bus and port:
             logger.info("Request to detach by bus %s and port %s", bus, port)
             asyncio.run_coroutine_threadsafe(
                 remove_existing_usb_device_by_bus_port(self.app_context, bus, port, True),
-                self.loop,
+                self.loop
             ).result()
         else:
             logger.info("Request to detach by vid %s and pid %s", vid, pid)
             asyncio.run_coroutine_threadsafe(
                 remove_existing_usb_device_by_vid_pid(self.app_context, vid, pid, True),
-                self.loop,
+                self.loop
             ).result()
 
         return {"result": "ok"}
 
     def _on_usb_suspend(self, _client_sock, _client_addr, _msg):
         asyncio.run_coroutine_threadsafe(
-            detach_connected_devices(self.app_context),
-            self.loop,
+            detach_connected_usb(self.app_context),
+            self.loop
         ).result()
         return {"result": "ok"}
 
     def _on_usb_resume(self, _client_sock, _client_addr, _msg):
         asyncio.run_coroutine_threadsafe(
-            attach_connected_devices(self.app_context),
-            self.loop,
+            attach_connected_usb(self.app_context),
+            self.loop
+        ).result()
+        return {"result": "ok"}
+
+    def _on_pci_list(self, _client_sock, _client_addr, _msg):
+        return {"result": "ok", "pci_devices": get_devices(self.app_context, False)}
+
+    def _on_pci_attach(self, _client_sock, _client_addr, msg):
+        address = msg.get("address")
+        vid = msg.get("vid")
+        did = msg.get("did")
+        selected_vm = msg.get("vm")
+        if address:
+            logger.info("Request to attach PCI device %s to %s", address, selected_vm)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_pci_device(self.app_context, address, selected_vm),
+                self.loop,
+            ).result()
+        else:
+            logger.info("Request to attach PCI device by vid %s and did %s to %s", vid, did, selected_vm)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_pci_device_by_vid_did(self.app_context, vid, did, selected_vm),
+                self.loop
+            ).result()
+
+        return {"result": "ok"}
+
+    def _on_pci_detach(self, _client_sock, _client_addr, msg):
+        address = msg.get("address")
+        vid = msg.get("vid")
+        did = msg.get("did")
+        if address:
+            logger.info("Request to detach PCI device %s", address)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_pci_device(self.app_context, address, True),
+                self.loop,
+            ).result()
+        else:
+            logger.info("Request to detach PCI device by vid %s and did %s", vid, did)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_pci_device_by_vid_did(self.app_context, vid, did, True),
+                self.loop
+            ).result()
+
+        return {"result": "ok"}
+
+    def _on_pci_suspend(self, _client_sock, _client_addr, _msg):
+        asyncio.run_coroutine_threadsafe(
+            detach_connected_pci(self.app_context),
+            self.loop
+        ).result()
+        return {"result": "ok"}
+
+    def _on_pci_resume(self, _client_sock, _client_addr, _msg):
+        asyncio.run_coroutine_threadsafe(
+            attach_connected_pci(self.app_context),
+            self.loop
         ).result()
         return {"result": "ok"}
