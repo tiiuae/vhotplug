@@ -47,7 +47,7 @@ def usb_list(client: APIClient):
         raise RuntimeError(f"Failed to get USB list: {res.get('error')}")
     logger.debug("USB list: %s", res)
     for dev in res.get("usb_devices", []):
-        print(f"USB Device: {dev['vid']}:{dev['pid']} {dev['vendor_name']} {dev['product_name']}")
+        print(f"{dev['vid']}:{dev['pid']} {dev['vendor_name']} {dev['product_name']}")
         for key, value in dev.items():
             print(f"  {key:<16}: {value}")
         print()
@@ -105,7 +105,7 @@ def pci_list(client: APIClient):
         raise RuntimeError(f"Failed to get PCI list: {res.get('error')}")
     logger.debug("PCI list: %s", res)
     for dev in res.get("pci_devices", []):
-        print(f"PCI Device: {dev['vendor_id']}:{dev['device_id']} {dev['vendor_name']} {dev['device_name']}")
+        print(f"{dev['vid']}:{dev['did']} {dev['vendor_name']} {dev['device_name']}")
         for key, value in dev.items():
             print(f"  {key:<16}: {value}")
         print()
