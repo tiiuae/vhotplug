@@ -303,7 +303,10 @@ class QEMULink:
             return
 
         bus = await self._find_empty_pci_bridge()
-        logger.info("Found empty PCI bridge: %s", bus)
+        if bus:
+            logger.info("Found empty PCI bridge: %s", bus)
+        else:
+            logger.warning("Could not find an empty PCI bridge in the VM")
 
         qemuid = pci_info.runtime_id()
         qmp = QMPClient()

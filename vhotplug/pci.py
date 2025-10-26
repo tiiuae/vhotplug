@@ -1,5 +1,8 @@
 from typing import NamedTuple, Optional
 import logging
+import time
+import os
+from pathlib import Path
 
 logger = logging.getLogger("vhotplug")
 
@@ -36,7 +39,7 @@ class PCIInfo(NamedTuple):
         }
 
     def friendly_name(self):
-        return f"{self.vendor_id}:{self.device_id} ({self.vendor_name} {self.device_name})"
+        return f"{self.vid}:{self.did} ({self.vendor_name} {self.device_name})"
 
     def runtime_id(self) -> str:
         return f"pci-{self.address}"
@@ -48,8 +51,8 @@ class PCIInfo(NamedTuple):
         return False
 
 def get_pci_info(device) -> PCIInfo:
-    address  = device.sys_name
-    driver  = device.driver
+    address = device.sys_name
+    driver = device.driver
     pci_id = device.properties.get("PCI_ID")
     vid, did = pci_id.split(":")
     vendor_id = int(vid, 16)
@@ -80,3 +83,55 @@ def pci_device_by_vid_did(app_context, vid, did):
         if vid_match and did_match:
             return device
     return None
+
+def _unbind_driver(device_path, dev_info):
+    for _ in range(1, 5):
+        try:
+            with open(device_path / "driver/unbind", "w", encoding="utf-8") as f:
+                f.write(dev_info.address)
+            logger.info("Successfully unbound %s driver from %s", dev_info.driver, device_path)
+            break
+        except OSError as e:
+            logger.warning("Failed to unbind %s driver from %s: %s", dev_info.driver, device_path, e)
+        time.sleep(1)
+    else:
+        logger.error("Failed to unbind %s from %s after 5 attempts", dev_info.driver, device_path)
+
+def setup_vfio(dev_info):
+    try:
+        device_path = Path(f"/sys/bus/pci/devices/{dev_info.address}")
+        if not device_path.exists():
+            logger.error("Device path %s does not exist", device_path)
+            return
+
+        if (device_path / "driver").exists():
+            _unbind_driver(device_path, dev_info)
+
+        with open(device_path / "driver_override", "w", encoding="utf-8") as f:
+            f.write("vfio-pci")
+
+        with open("/sys/bus/pci/drivers_probe", "w", encoding="utf-8") as f:
+            f.write(dev_info.address)
+
+        # Wait for IOMMU group to appear
+        for _ in range(1, 5):
+            iommu_group = device_path / "iommu_group"
+            if not iommu_group.exists():
+                logger.warning("IOMMU group does not exist")
+                time.sleep(0.1)
+            else:
+                iommu_group_path = iommu_group.resolve()
+                logger.info("IOMMU group: %s", iommu_group_path.name)
+
+                # List other devices in the same IOMMU group:
+                devices_dir = iommu_group_path / "devices"
+                if devices_dir.exists():
+                    devices = sorted(os.listdir(devices_dir))
+                    logger.info("Devices the group:")
+                    for dev in devices:
+                        logger.info(" - %s", dev)
+                break
+
+        logger.info("Successfully bound vfio-pci driver to %s", device_path)
+    except OSError as e:
+        logger.error("Failed to setup VFIO for %s: %s", device_path, e)

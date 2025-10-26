@@ -2,7 +2,7 @@ import logging
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.usb import USBInfo, get_usb_info, is_usb_hub, is_usb_device, usb_device_by_node, usb_device_by_bus_port, usb_device_by_vid_pid
-from vhotplug.pci import get_pci_info, pci_device_by_address, pci_device_by_vid_did
+from vhotplug.pci import get_pci_info, pci_device_by_address, pci_device_by_vid_did, setup_vfio
 
 logger = logging.getLogger("vhotplug")
 
@@ -129,6 +129,11 @@ async def attach_device_to_vm(app_context, dev_info, vm_name):
             logger.warning("Failed to remove: %s", e)
 
     is_usb_dev = isinstance(dev_info, USBInfo)
+
+    # Setup VFIO for PCI devices if needed
+    if not is_usb_dev and dev_info.driver != "vfio-pci":
+        logger.info("Setting up VFIO for device %s, current driver: %s", dev_info.address, dev_info.driver)
+        setup_vfio(dev_info)
 
     # Attach device to the VM
     vm_type = vm.get("type")
