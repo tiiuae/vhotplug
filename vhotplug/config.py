@@ -1,9 +1,17 @@
 import json
 import logging
 import re
+from dataclasses import dataclass
+from typing import List, Optional
 from vhotplug.usb import parse_usb_interfaces, USBInfo
 
 logger = logging.getLogger("vhotplug")
+
+@dataclass
+class PassthroughInfo:
+    target_vm: Optional[str]
+    allowed_vms: Optional[List[str]]
+    skip_on_suspend: bool = False
 
 class Config:
     def __init__(self, path):
@@ -165,17 +173,18 @@ class Config:
                 if found:
                     target_vm = rule.get("targetVm")
                     allowed_vms = rule.get("allowedVms")
+                    skip_on_suspend = rule.get("skipOnSuspend", False)
                     if target_vm:
                         logger.debug("Found VM %s for %s", target_vm, dev_name)
                     elif allowed_vms:
                         logger.debug("Found allowed VMs %s for %s", allowed_vms, dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
-                    return (target_vm, allowed_vms)
+                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend)
 
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for device in the configuration file: %s", e)
-        return (None, None)
+        return None
 
     def vm_for_evdev_devices(self):
         try:

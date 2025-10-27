@@ -49,8 +49,8 @@ async def attach_device(app_context, dev_info, ask):
     """Find a VM and attach a device when it is plugged in or detected at startup."""
 
     # Find a rule for the device in the config file
-    (target_vm, allowed_vms) = app_context.config.vm_for_device(dev_info)
-    if not target_vm and not allowed_vms:
+    res = app_context.config.vm_for_device(dev_info)
+    if not res:
         logger.debug("No VM found for %s", dev_info.friendly_name())
         return
 
@@ -64,19 +64,20 @@ async def attach_device(app_context, dev_info, ask):
         logger.info("Device %s was forcibly disconnected", dev_info.friendly_name())
         return
 
+    target_vm = res.target_vm
     if not target_vm:
         if isinstance(dev_info, USBInfo):
             logger.info("Found multiple VMs for %s", dev_info.friendly_name())
             if ask:
                 logger.info("Sending an API request to select a VM")
                 if app_context.api_server:
-                    app_context.api_server.notify_usb_select_vm(dev_info, allowed_vms)
+                    app_context.api_server.notify_usb_select_vm(dev_info, res.allowed_vms)
                 return
         else:
             logger.error("Multiple VMs for %s are not allowed (only supported for USB)", dev_info.friendly_name())
 
         # Try to select the last used VM from the state database or fall back to the first one in the list
-        target_vm = _autoselect_vm(app_context, dev_info, allowed_vms)
+        target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
     await attach_device_to_vm(app_context, dev_info, target_vm)
 
@@ -88,15 +89,19 @@ async def _attach_existing_device(app_context, dev_info, selected_vm):
         raise RuntimeError(f"Device {dev_info.friendly_name()} is used as a boot device")
 
     # Find a rule for the device in the config file
-    (target_vm, allowed_vms) = app_context.config.vm_for_device(dev_info)
+    res = app_context.config.vm_for_device(dev_info)
+    if not res:
+        raise RuntimeError(f"No VM found for {dev_info.friendly_name()}")
+
+    target_vm = res.target_vm
     if target_vm:
         if selected_vm and selected_vm != target_vm:
             raise RuntimeError(f"Selected VM {selected_vm} but target VM is set to {target_vm}")
     else:
-        if allowed_vms is None:
+        if res.allowed_vms is None:
             raise RuntimeError("No allowed VMs defined")
         if selected_vm:
-            if selected_vm not in allowed_vms:
+            if selected_vm not in res.allowed_vms:
                 raise RuntimeError(f"Selected VM {selected_vm} is not allowed")
 
             # Save VM selection when multiple VMs are allowed
@@ -104,7 +109,7 @@ async def _attach_existing_device(app_context, dev_info, selected_vm):
             app_context.dev_state.select_vm_for_device(dev_info, target_vm)
         else:
             # Try to select the last used VM from the state database or fall back to the first one in the list
-            target_vm = _autoselect_vm(app_context, dev_info, allowed_vms)
+            target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
     # Attach device to the VM
     await attach_device_to_vm(app_context, dev_info, target_vm)
@@ -167,7 +172,7 @@ async def remove_device(app_context, dev_info):
     # Get current VM for the device from the state database
     current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
     if not current_vm_name:
-        raise RuntimeError("VM not found for device")
+        raise RuntimeError(f"VM not found for {dev_info.friendly_name()}")
 
     logger.info("Removing %s from %s", dev_info.friendly_name(), current_vm_name)
 
@@ -287,7 +292,23 @@ async def detach_connected_usb(app_context):
 
     logger.info("Detaching all USB devices")
     for device_node in app_context.dev_state.list_usb_devices():
-        await remove_existing_usb_device(app_context, device_node)
+        device = usb_device_by_node(app_context, device_node)
+        if device is None:
+            logger.warning("Device %s not found in the system", device_node)
+        else:
+            # Find a rule for the device in the config file
+            usb_info = get_usb_info(device)
+            res = app_context.config.vm_for_device(usb_info)
+            if res:
+                if res.skip_on_suspend:
+                    logger.info("Skipping USB device %s during suspend", usb_info.friendly_name())
+                else:
+                    try:
+                        await _remove_existing_device(app_context, usb_info)
+                    except RuntimeError as e:
+                        logger.error("Failed to remove %s: %s", usb_info.friendly_name(), e)
+            else:
+                logger.warning("Device %s does not match any rules", usb_info.friendly_name())
 
 async def attach_existing_pci_device(app_context, pci_address, selected_vm):
     """Find PCI device by address and attach to selected VM."""
@@ -347,7 +368,23 @@ async def detach_connected_pci(app_context):
 
     logger.info("Detaching all PCI devices")
     for pci_address in app_context.dev_state.list_pci_devices():
-        await remove_existing_pci_device(app_context, pci_address)
+        device = pci_device_by_address(app_context, pci_address)
+        if device is None:
+            logger.warning("Device %s not found in the system", pci_address)
+        else:
+            # Find a rule for the device in the config file
+            pci_info = get_pci_info(device)
+            res = app_context.config.vm_for_device(pci_info)
+            if res:
+                if res.skip_on_suspend:
+                    logger.info("Skipping PCI device %s during suspend", pci_info.friendly_name())
+                else:
+                    try:
+                        await _remove_existing_device(app_context, pci_info)
+                    except RuntimeError as e:
+                        logger.error("Failed to remove %s: %s", pci_info.friendly_name(), e)
+            else:
+                logger.warning("Device %s does not match any rules", pci_info.friendly_name())
 
 def get_devices(app_context, usb):
     """Returns a list of all devices that match the rules from the config."""
@@ -368,17 +405,17 @@ def get_devices(app_context, usb):
         else:
             dev_info = get_pci_info(device)
 
-        (target_vm, allowed_vms) = app_context.config.vm_for_device(dev_info)
-        if target_vm or allowed_vms:
+        res = app_context.config.vm_for_device(dev_info)
+        if res:
 
             # Convert device info to a dictionary
             dev = dev_info.to_dict()
 
             # Add allowed VMs
-            if target_vm:
-                dev["allowed_vms"] = [target_vm]
+            if res.target_vm:
+                dev["allowed_vms"] = [res.target_vm]
             else:
-                dev["allowed_vms"] = allowed_vms
+                dev["allowed_vms"] = res.allowed_vms
 
             # Get current VM name
             current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
