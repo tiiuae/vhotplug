@@ -122,14 +122,13 @@ class Config:
             return True
 
         # Match by VID/DID
-        rule_vid = rule.get("vendorId")
-        rule_did = rule.get("deviceId")
-        logger.debug("Checking %s:%s against %s:%s", pci_info.vendor_id, pci_info.device_id, rule_vid, rule_did)
-        vid_match = rule_vid and pci_info.vendor_id and pci_info.vendor_id.casefold() == rule_vid.casefold()
-        did_match = rule_did and pci_info.device_id and pci_info.device_id.casefold() == rule_did.casefold()
-        if vid_match and did_match:
-            logger.debug("Match by vendor id / device id, description: %s", rule_description)
-            return True
+        rule_vid = int(rule.get("vendorId"), 16) if "vendorId" in rule else None
+        rule_did = int(rule.get("deviceId"), 16) if "deviceId" in rule else None
+        if rule_vid and rule_did and pci_info.vendor_id and pci_info.device_id:
+            logger.debug("Checking %04x:%04x against %04x:%04x", pci_info.vendor_id, pci_info.device_id, rule_vid, rule_did)
+            if pci_info.vendor_id == rule_vid and pci_info.device_id == rule_did:
+                logger.debug("Match by vendor id / device id, description: %s", rule_description)
+                return True
 
         # Match by PCI class, subclass and programming interface
         rule_device_class = rule.get("deviceClass")
