@@ -11,15 +11,13 @@ logger = logging.getLogger("vhotplug")
 class QEMULink:
     vm_retry_count = 5
     vm_retry_timeout = 1
-    vm_boot_timeout = 5
+    vm_boot_timeout = 1
 
     def __init__(self, socket_path):
         self.socket_path = socket_path
+        self._lock = asyncio.Lock()
 
-    def _qemu_id_usb(self, usb_info):
-        return f"usb{usb_info.busnum}{usb_info.devnum}"
-
-    async def wait_for_vm(self):
+    async def _wait_for_vm(self):
         while True:
             try:
                 status = await self.query_status()
@@ -31,25 +29,64 @@ class QEMULink:
                 logger.error("Failed to query VM status: %s", e)
             await asyncio.sleep(1)
 
-    async def query_commands(self):
-        qmp = QMPClient()
+    def _qemu_id_usb(self, usb_info):
+        return f"usb{usb_info.busnum}{usb_info.devnum}"
+
+    def _qemu_id_pci(self, pci_info):
+        return pci_info.runtime_id()
+
+    def _qemu_id_evdev(self, device):
+        return f"evdev-{device.sys_name}"
+
+    async def _execute(self, cmd, args = None, retry=True):
+        last_error = None
+
+        for attempt in range(1, self.vm_retry_count + 1):
+            qmp = QMPClient()
+            try:
+                await qmp.connect(self.socket_path)
+                res = await qmp.execute(cmd, args)
+
+                if isinstance(res, dict) and "error" in res:
+                    last_error = res["error"]
+                    logger.warning("QMP command %s failed: %s", cmd, last_error)
+                else:
+                    return res
+
+            except QMPError as e:
+                last_error = e
+                logger.warning("Failed to execute qemu command %s: %s", cmd, e)
+            finally:
+                await qmp.disconnect()
+
+            if not retry:
+                break
+            if attempt < self.vm_retry_count:
+                logger.info("Retrying in %s seconds...", self.vm_retry_timeout)
+                await asyncio.sleep(self.vm_retry_timeout)
+
+        raise RuntimeError(last_error)
+
+    async def _execute_simple(self, cmd, args = None):
         try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("query-commands")
+            return await self._execute(cmd, args, False)
+        except RuntimeError as e:
+            logger.error(str(e))
+            return None
+
+    async def query_commands(self):
+        res = await self._execute_simple("query-commands")
+        if res:
             logger.info("QMP Commands:")
             for x in res:
                 logger.info(x)
-        except QMPError as e:
-            logger.error("Failed to get a list of commands: %s", e)
-        finally:
-            await qmp.disconnect()
 
     async def usb(self):
+        """Returns a list of QEMU IDs for USB devices attached to the VM."""
+
         ids = []
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("human-monitor-command", {"command-line": "info usb"})
+        res = await self._execute_simple("human-monitor-command", {"command-line": "info usb"})
+        if res:
             logger.debug("Guest USB Devices:")
             for line in res.splitlines():
                 logger.debug("%s", line)
@@ -57,61 +94,33 @@ class QEMULink:
                 match = id_pattern.search(line)
                 if match:
                     ids.append(match.group(1))
-        except QMPError as e:
-            logger.error("Failed to get a list of USB guest devices: %s", e)
-        finally:
-            await qmp.disconnect()
         return ids
 
     async def usbhost(self):
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("human-monitor-command", {"command-line": "info usbhost"})
-            logger.info("Host USB Devices:")
+        res = await self._execute_simple("human-monitor-command", {"command-line": "info usbhost"})
+        if res:
+            logger.debug("Host USB Devices:")
             for line in res.splitlines():
                 logger.info("%s", line)
-        except QMPError as e:
-            logger.error("Failed to get a list of USB host devices: %s", e)
-        finally:
-            await qmp.disconnect()
 
     async def query_status(self):
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("query-status")
+        res = await self._execute_simple("query-status")
+        if res:
             return res['status']
-        except QMPError as e:
-            logger.debug("Failed to query status: %s", e)
-        finally:
-            await qmp.disconnect()
 
     async def query_usb(self):
         """This command is unstable/experimental and meant for debugging."""
 
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("x-query-usb")
+        res = await self._execute_simple("x-query-usb")
+        if res:
             # Example: '  Device 0.1, Port 1, Speed 12 Mb/s, Product host:3.2, ID: usb32\n'
             logger.info("USB: %s", res['human-readable-text'])
-        except QMPError as e:
-            logger.error("Failed to get a list of commands: %s", e)
-        finally:
-            await qmp.disconnect()
 
     async def query_pci(self):
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("query-pci")
+        res = await self._execute_simple("query-pci")
+        if res:
             logger.debug("PCI: %s", res)
             return res
-        except QMPError as e:
-            logger.error("Failed to query PCI: %s", e)
-        finally:
-            await qmp.disconnect()
 
     async def print_pci(self):
         res = await self.query_pci()
@@ -150,202 +159,99 @@ class QEMULink:
         for root_bus in res:
             walk_devices(root_bus["devices"], 2)
 
+    async def _find_usb_device(self, qemuid):
+        devs = await self.usb()
+        return qemuid in devs
+
     async def add_usb_device(self, usb_info):
-        if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
-            logger.warning("VM is not booted while adding device %s", usb_info.device_node)
+        async with self._lock:
+            if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
+                logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
+                return
 
-        qemuid = self._qemu_id_usb(usb_info)
-        i = 0
-        while True:
-            qmp = QMPClient()
-            try:
-                await qmp.connect(self.socket_path)
-                logger.info("Adding USB device with id %s bus %s dev %s to %s", qemuid, usb_info.busnum, usb_info.devnum, self.socket_path)
-                res = await qmp.execute("device_add", {"driver": "usb-host", "hostbus": usb_info.busnum, "hostaddr": usb_info.devnum, "id": qemuid})
-                if res:
-                    logger.error("Failed to add device %s: %s", qemuid, res)
-                else:
-                    logger.info("Attached USB device: %s", qemuid)
-                    return
-            except QMPError as e:
-                if str(e).startswith("Duplicate device ID"):
-                    logger.info("USB device %s is already attached to the VM", qemuid)
-                    return
-                logger.warning("Failed to add USB device %s: %s", qemuid, e)
-                i += 1
-            finally:
-                await qmp.disconnect()
+            qemuid = self._qemu_id_usb(usb_info)
+            if await self._find_usb_device(qemuid):
+                logger.info("USB device %s is already attached to the VM with id %s", usb_info.friendly_name(), qemuid)
+                return
 
-            if i < self.vm_retry_count:
-                logger.info("Retrying")
-                await asyncio.sleep(self.vm_retry_timeout)
-            else:
-                break
-        logger.error("Failed to add USB device %s after %s attempts", qemuid, i)
-        raise RuntimeError("Timeout")
+            logger.info("Adding USB device with id %s bus %s dev %s to %s", qemuid, usb_info.busnum, usb_info.devnum, self.socket_path)
+            await self._execute("device_add", {"driver": "usb-host", "hostbus": usb_info.busnum, "hostaddr": usb_info.devnum, "id": qemuid})
+            logger.info("Attached USB device %s with id %s", usb_info.friendly_name(), qemuid)
 
     async def add_usb_device_by_vid_pid(self, usb_info):
-        if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
-            logger.warning("VM is not booted while adding device %s", usb_info.device_node)
+        async with self._lock:
+            if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
+                logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
+                return
 
-        qemuid = self._qemu_id_usb(usb_info)
-        i = 0
-        while True:
-            qmp = QMPClient()
-            try:
-                await qmp.connect(self.socket_path)
-                logger.debug("Adding USB device %s:%s with id %s to %s", usb_info.vid, usb_info.pid, qemuid, self.socket_path)
-                res = await qmp.execute("device_add", {"driver": "usb-host", "vendorid": int(usb_info.vid, 16), "productid": int(usb_info.pid, 16), "id": qemuid})
-                if res:
-                    logger.error("Failed to add device %s:%s with id %s: %s", usb_info.vid, usb_info.pid, qemuid, res)
-                else:
-                    logger.info("Attached USB device %s:%s with id %s", usb_info.vid, usb_info.pid, qemuid)
-                    return
-            except QMPError as e:
-                if str(e).startswith("Duplicate device ID"):
-                    logger.info("USB device %s:%s with id %s is already attached to the VM", usb_info.vid, usb_info.pid, qemuid)
-                    return
-                logger.warning("Failed to add USB device %s:%s with id %s: %s", usb_info.vid, usb_info.pid, qemuid, e)
-                i += 1
-            finally:
-                await qmp.disconnect()
+            qemuid = self._qemu_id_usb(usb_info)
+            if await self._find_usb_device(qemuid):
+                logger.info("USB device %s is already attached to the VM with id %s", usb_info.friendly_name(), qemuid)
+                return
 
-            if i < self.vm_retry_count:
-                logger.info("Retrying")
-                await asyncio.sleep(self.vm_retry_timeout)
-            else:
-                break
-        logger.error("Failed to add USB device %s:%s with id %s after %s attempts", usb_info.vid, usb_info.pid, qemuid, i)
-        raise RuntimeError("Timeout")
+            logger.info("Adding USB device %s:%s with id %s to %s", usb_info.vid, usb_info.pid, qemuid, self.socket_path)
+            await self._execute("device_add", {"driver": "usb-host", "vendorid": int(usb_info.vid, 16), "productid": int(usb_info.pid, 16), "id": qemuid})
+            logger.info("Attached USB device %s with id %s", usb_info.friendly_name(), qemuid)
 
     async def remove_usb_device(self, usb_info):
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
+        async with self._lock:
             qemuid = self._qemu_id_usb(usb_info)
-            res = await qmp.execute("device_del", {"id": qemuid})
-            if res:
-                logger.error("Failed to remove USB device %s: %s", qemuid, res)
-                raise RuntimeError(res)
-            logger.info("Removed USB device %s from %s", qemuid, self.socket_path)
-        except QMPError as e:
-            if str(e) == f"Device '{qemuid}' not found":
-                logger.debug("Failed to remove USB device %s from %s: %s", qemuid, self.socket_path, e)
-            else:
-                logger.error("Failed to remove USB device %s from %s: %s", qemuid, self.socket_path, e)
-                raise RuntimeError(e) from None
-        finally:
-            await qmp.disconnect()
+            await self._execute("device_del", {"id": qemuid})
 
     async def add_evdev_device(self, device, bus):
-        if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
-            logger.warning("VM is not booted while adding device %s", device.device_node)
+        async with self._lock:
+            if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
+                logger.warning("VM is not booted while adding device %s", device.device_node)
+                return
 
-        idindex = 0
-        i = 0
-        while True:
-            qemuid = device.sys_name
-            if idindex > 0:
-                qemuid += f"-{idindex}"
+            qemuid = self._qemu_id_evdev(device)
             logger.debug("Adding evdev device %s with id %s to bus %s", device.device_node, qemuid, bus)
-            qmp = QMPClient()
             try:
-                await qmp.connect(self.socket_path)
-                res = await qmp.execute("device_add", {"driver": "virtio-input-host-pci", "evdev": device.device_node, "id": qemuid, "bus": bus})
-                if res:
-                    logger.error("Failed to add evdev device to bus %s: %s", bus, res)
-                else:
-                    logger.info("Attached evdev device %s to bus %s", device.device_node, bus)
-                    return
-            except QMPError as e:
-                if str(e).startswith("Duplicate device ID"):
-                    idindex += 1
-                elif str(e).endswith("Device or resource busy"):
+                await self._execute("device_add", {"driver": "virtio-input-host-pci", "evdev": device.device_node, "id": qemuid, "bus": bus})
+                logger.info("Attached evdev device %s to bus %s", device.device_node, bus)
+            except RuntimeError as e:
+                if str(e).endswith("Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")
                     return
-                else:
-                    logger.error("Failed to add evdev device to bus %s: %s", bus, e)
-                    i += 1
-            finally:
-                await qmp.disconnect()
-
-            if i < self.vm_retry_count:
-                logger.info("Retrying")
-                await asyncio.sleep(self.vm_retry_timeout)
-            else:
-                break
-        logger.error("Failed to add evdev device: %s", device.device_node)
+                raise
 
     async def remove_evdev_device(self, device):
-        logger.debug("Removing evdev device %s with id %s", device.device_node, device.sys_name)
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("device_del", {"id": device.sys_name})
-            if res:
-                logger.error("Failed to remove evdev device: %s", res)
-            else:
-                logger.debug("Removed evdev device %s", device.sys_name)
-        except QMPError as e:
-            logger.error("Failed to remove evdev device: %s", e)
-        finally:
-            await qmp.disconnect()
+        async with self._lock:
+            logger.debug("Removing evdev device %s with id %s", device.device_node, device.sys_name)
+            qemuid = self._qemu_id_evdev(device)
+            await self._execute("device_del", {"id": qemuid})
+            logger.debug("Removed evdev device %s", device.sys_name)
 
     async def add_pci_device(self, pci_info):
-        if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
-            logger.warning("VM is not booted while adding device %s", pci_info.friendly_name())
+        async with self._lock:
+            if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
+                logger.warning("VM is not booted while adding device %s", pci_info.friendly_name())
+                return
 
-        #await self.print_pci()
-
-        qemuid = await self._find_pci_device(pci_info)
-        if qemuid:
-            logger.info("PCI device %s is already attached to the VM with id %s", pci_info.friendly_name(), qemuid)
-            return
-
-        bus = await self._find_empty_pci_bridge()
-        if bus:
-            logger.info("Found empty PCI bridge: %s", bus)
-        else:
-            logger.warning("Could not find an empty PCI bridge in the VM")
-
-        qemuid = pci_info.runtime_id()
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            logger.info("Adding PCI device with id %s address %s to %s", qemuid, pci_info.address, self.socket_path)
-            res = await qmp.execute("device_add", {"driver": "vfio-pci", "host": pci_info.address, "id": qemuid, "bus": bus})
-            if res:
-                raise RuntimeError(f"Failed to add PCI device {pci_info.friendly_name()}: {res}")
-            logger.info("Attached PCI device: %s", qemuid)
-            return
-        except QMPError as e:
-            if str(e).startswith("Duplicate device ID"):
+            qemuid = await self._find_pci_device(pci_info)
+            if qemuid:
                 logger.info("PCI device %s is already attached to the VM with id %s", pci_info.friendly_name(), qemuid)
                 return
-            raise RuntimeError(f"Failed to add PCI device {pci_info.friendly_name()}: {e}") from e
-        finally:
-            await qmp.disconnect()
+
+            bus = await self._find_empty_pci_bridge()
+            if bus:
+                logger.info("Found empty PCI bridge: %s", bus)
+            else:
+                logger.warning("Could not find an empty PCI bridge in the VM")
+
+            qemuid = self._qemu_id_pci(pci_info)
+            logger.info("Adding PCI device %s with id %s to %s", pci_info.address, qemuid, self.socket_path)
+            await self._execute("device_add", {"driver": "vfio-pci", "host": pci_info.address, "id": qemuid, "bus": bus})
+            logger.info("Attached PCI device: %s", qemuid)
 
     async def _remove_pci_device_by_qemu_id(self, qemuid):
-        qmp = QMPClient()
-        try:
-            await qmp.connect(self.socket_path)
-            res = await qmp.execute("device_del", {"id": qemuid})
-            if res:
-                logger.error("Failed to remove PCI device %s: %s", qemuid, res)
-                raise RuntimeError(res)
-            logger.info("Removed PCI device %s from %s", qemuid, self.socket_path)
-        except QMPError as e:
-            if str(e) == f"Device '{qemuid}' not found":
-                logger.debug("Failed to remove PCI device %s from %s: %s", qemuid, self.socket_path, e)
-            else:
-                logger.error("Failed to remove PCI device %s from %s: %s", qemuid, self.socket_path, e)
-                raise RuntimeError(e) from None
-        finally:
-            await qmp.disconnect()
+        await self._execute("device_del", {"id": qemuid}, False)
+        logger.info("Removed PCI device %s from %s", qemuid, self.socket_path)
 
     async def remove_pci_device(self, pci_info):
-        return await self._remove_pci_device_by_qemu_id(pci_info.runtime_id())
+        async with self._lock:
+            qemuid = self._qemu_id_pci(pci_info)
+            return await self._remove_pci_device_by_qemu_id(qemuid)
 
     async def _find_pci_device(self, pci_info):
         res = await self.query_pci()
@@ -408,9 +314,10 @@ class QEMULink:
         return None
 
     async def remove_pci_device_by_vid_did(self, pci_info):
-        qemuid = await self._find_pci_device(pci_info)
-        if qemuid is None:
-            logger.error("PCI device %s not found in guest", pci_info.friendly_name())
-            return
+        async with self._lock:
+            qemuid = await self._find_pci_device(pci_info)
+            if qemuid is None:
+                logger.error("PCI device %s not found in guest", pci_info.friendly_name())
+                return
 
-        return await self._remove_pci_device_by_qemu_id(qemuid)
+            return await self._remove_pci_device_by_qemu_id(qemuid)
