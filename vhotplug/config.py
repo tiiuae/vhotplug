@@ -206,6 +206,12 @@ class Config:
                 return vm
         return None
 
+    def get_vm_by_socket(self, socket):
+        for vm in self.config.get("vms", []):
+            if vm.get("socket") == socket:
+                return vm
+        return None
+
     def api_enabled(self):
         return self._enabled(self.config.get("general", {}).get("api", {}))
 

@@ -45,7 +45,7 @@ def _autoselect_vm(app_context, dev_info, allowed_vms):
     logger.info("Selecting %s as first option", allowed_vms[0])
     return allowed_vms[0]
 
-async def attach_device(app_context, dev_info, ask, vm_scope = None):
+async def attach_device(app_context, dev_info, ask, vms_scope = None):
     """Find a VM and attach a device when it is plugged in or detected at startup."""
 
     # Find a rule for the device in the config file
@@ -79,8 +79,8 @@ async def attach_device(app_context, dev_info, ask, vm_scope = None):
         # Try to select the last used VM from the state database or fall back to the first one in the list
         target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
-    if vm_scope and target_vm != vm_scope:
-        logger.info("Skipping %s because its VM is %s while only devices for %s are processed", dev_info.friendly_name(), target_vm, vm_scope)
+    if vms_scope and target_vm not in vms_scope:
+        logger.debug("Skipping %s because its VM is %s while only devices for %s are processed", dev_info.friendly_name(), target_vm, vms_scope)
         return
 
     await attach_device_to_vm(app_context, dev_info, target_vm)
@@ -270,15 +270,14 @@ async def remove_existing_usb_device_by_vid_pid(app_context, vid, pid, permanent
     usb_info = get_usb_info(device)
     await _remove_existing_device(app_context, usb_info, permanent)
 
-async def attach_connected_usb(app_context, vm_scope = None):
+async def attach_connected_usb(app_context, vms_scope = None):
     """Finds all USB devices that match the rules from the config and attaches them to VMs."""
 
-    if vm_scope is None:
+    if vms_scope is None:
         logger.info("Attaching all USB devices")
     else:
-        logger.info("Attaching USB devices for %s", vm_scope)
+        logger.info("Attaching USB devices for %s", vms_scope)
 
-    logger.info("Checking connected USB devices")
     for device in app_context.udev_context.list_devices(subsystem='usb'):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
@@ -291,17 +290,17 @@ async def attach_connected_usb(app_context, vm_scope = None):
                 continue
 
             try:
-                await attach_device(app_context, usb_info, False, vm_scope)
+                await attach_device(app_context, usb_info, False, vms_scope)
             except RuntimeError as e:
                 logger.error("Failed to attach USB device %s: %s", usb_info.friendly_name(), e)
 
-async def detach_connected_usb(app_context, vm_scope = None):
+async def detach_connected_usb(app_context, vms_scope = None):
     """Detach all connected USB devices from VMs."""
 
-    if vm_scope is None:
+    if vms_scope is None:
         logger.info("Detaching all USB devices")
     else:
-        logger.info("Detaching USB devices from %s", vm_scope)
+        logger.info("Detaching USB devices from %s", vms_scope)
 
     for device_node in app_context.dev_state.list_usb_devices():
         device = usb_device_by_node(app_context, device_node)
@@ -316,10 +315,10 @@ async def detach_connected_usb(app_context, vm_scope = None):
                     logger.info("Skipping USB device %s during suspend", usb_info.friendly_name())
                     continue
 
-                if vm_scope:
+                if vms_scope:
                     current_vm_name = app_context.dev_state.get_vm_for_device(usb_info)
-                    if vm_scope != current_vm_name:
-                        logger.info("Skipping USB device %s attached to %s while only devices for %s are processed", usb_info.friendly_name(), current_vm_name, vm_scope)
+                    if current_vm_name not in vms_scope:
+                        logger.debug("Skipping USB device %s attached to %s while only devices for %s are processed", usb_info.friendly_name(), current_vm_name, vms_scope)
                         continue
                 try:
                     await _remove_existing_device(app_context, usb_info)
@@ -366,13 +365,13 @@ async def remove_existing_pci_device_by_vid_did(app_context, vid, did, permanent
     await _remove_existing_device(app_context, pci_info, permanent)
     return True
 
-async def attach_connected_pci(app_context, vm_scope = None):
+async def attach_connected_pci(app_context, vms_scope = None):
     """Finds all PCI devices that match the rules from the config and attaches them to VMs."""
 
-    if vm_scope is None:
+    if vms_scope is None:
         logger.info("Attaching all PCI devices")
     else:
-        logger.info("Attaching PCI devices for %s", vm_scope)
+        logger.info("Attaching PCI devices for %s", vms_scope)
 
     for device in app_context.udev_context.list_devices(subsystem='pci'):
         pci_info = get_pci_info(device)
@@ -381,17 +380,17 @@ async def attach_connected_pci(app_context, vm_scope = None):
         log_device(device)
 
         try:
-            await attach_device(app_context, pci_info, False, vm_scope)
+            await attach_device(app_context, pci_info, False, vms_scope)
         except RuntimeError as e:
             logger.error("Failed to attach PCI device %s: %s", pci_info.friendly_name(), e)
 
-async def detach_connected_pci(app_context, vm_scope = None):
+async def detach_connected_pci(app_context, vms_scope = None):
     """Detach all connected PCI devices from VMs."""
 
-    if vm_scope is None:
+    if vms_scope is None:
         logger.info("Detaching all PCI devices")
     else:
-        logger.info("Detaching PCI devices from %s", vm_scope)
+        logger.info("Detaching PCI devices from %s", vms_scope)
 
     for pci_address in app_context.dev_state.list_pci_devices():
         device = pci_device_by_address(app_context, pci_address)
@@ -406,10 +405,10 @@ async def detach_connected_pci(app_context, vm_scope = None):
                     logger.info("Skipping PCI device %s during suspend", pci_info.friendly_name())
                     continue
 
-                if vm_scope:
+                if vms_scope:
                     current_vm_name = app_context.dev_state.get_vm_for_device(pci_info)
-                    if vm_scope != current_vm_name:
-                        logger.info("Skipping PCI device %s attached to %s while only devices for %s are processed", pci_info.friendly_name(), current_vm_name, vm_scope)
+                    if current_vm_name not in vms_scope:
+                        logger.debug("Skipping PCI device %s attached to %s while only devices for %s are processed", pci_info.friendly_name(), current_vm_name, vms_scope)
                         continue
 
                 try:

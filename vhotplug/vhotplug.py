@@ -69,17 +69,23 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
         if device:
             await device_event(app_context, device)
 
-        # Check all devices because one or more VMs have restarted
-        vm_restart_detected, vms_restarted = file_watcher.detect_restart()
+        # Detect if any VMs restarted
+        vm_restart_detected, sockets_restarted = file_watcher.detect_restart()
         if vm_restart_detected and attach_connected:
+            vms_restarted = []
+            for sock in sockets_restarted:
+                vm = app_context.config.get_vm_by_socket(sock)
+                if vm:
+                    vms_restarted.append(vm.get("name"))
+
             # Check non-USB evdev devices when the target VM is restarted
             vm, _ = app_context.config.vm_for_evdev_devices()
-            if vm and vm.get("socket") in vms_restarted:
+            if vm and vm.get("name") in vms_restarted:
                 await attach_connected_evdev(app_context)
-            # Check all USB devices
-            await attach_connected_usb(app_context)
-            # Check all PCI devices
-            await attach_connected_pci(app_context)
+            # Check PCI devices for restarted VMs
+            await attach_connected_pci(app_context, vms_restarted)
+            # Check USB devices for restarted VMs
+            await attach_connected_usb(app_context, vms_restarted)
 
 async def async_main():
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
