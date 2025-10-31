@@ -280,16 +280,18 @@ class APIServer:
 
         return {"result": "ok"}
 
-    def _on_usb_suspend(self, _client_sock, _client_addr, _msg):
+    def _on_usb_suspend(self, _client_sock, _client_addr, msg):
+        vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            detach_connected_usb(self.app_context),
+            detach_connected_usb(self.app_context, vm),
             self.loop
         ).result()
         return {"result": "ok"}
 
-    def _on_usb_resume(self, _client_sock, _client_addr, _msg):
+    def _on_usb_resume(self, _client_sock, _client_addr, msg):
+        vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            attach_connected_usb(self.app_context),
+            attach_connected_usb(self.app_context, vm),
             self.loop
         ).result()
         return {"result": "ok"}
@@ -336,16 +338,18 @@ class APIServer:
 
         return {"result": "ok"}
 
-    def _on_pci_suspend(self, _client_sock, _client_addr, _msg):
+    def _on_pci_suspend(self, _client_sock, _client_addr, msg):
+        vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            detach_connected_pci(self.app_context),
+            detach_connected_pci(self.app_context, vm),
             self.loop
         ).result()
         return {"result": "ok"}
 
-    def _on_pci_resume(self, _client_sock, _client_addr, _msg):
+    def _on_pci_resume(self, _client_sock, _client_addr, msg):
+        vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            attach_connected_pci(self.app_context),
+            attach_connected_pci(self.app_context, vm),
             self.loop
         ).result()
         return {"result": "ok"}

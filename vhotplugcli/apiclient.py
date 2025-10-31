@@ -109,11 +109,11 @@ class APIClient:
     def usb_detach_by_vid_pid(self, vid, pid):
         return self.send({"action": "usb_detach", "vid": vid, "pid": pid})
 
-    def usb_suspend(self):
-        return self.send({"action": "usb_suspend"})
+    def usb_suspend(self, vm):
+        return self.send({"action": "usb_suspend", "vm": vm})
 
-    def usb_resume(self):
-        return self.send({"action": "usb_resume"})
+    def usb_resume(self, vm):
+        return self.send({"action": "usb_resume", "vm": vm})
 
     def pci_list(self):
         return self.send({"action": "pci_list"})
@@ -130,11 +130,11 @@ class APIClient:
     def pci_detach_by_vid_did(self, vid, did):
         return self.send({"action": "pci_detach", "vid": vid, "did": did})
 
-    def pci_suspend(self):
-        return self.send({"action": "pci_suspend"})
+    def pci_suspend(self, vm):
+        return self.send({"action": "pci_suspend", "vm": vm})
 
-    def pci_resume(self):
-        return self.send({"action": "pci_resume"})
+    def pci_resume(self, vm):
+        return self.send({"action": "pci_resume", "vm": vm})
 
     def recv_notifications(self, callback, reconnect_delay=3):
         while True:

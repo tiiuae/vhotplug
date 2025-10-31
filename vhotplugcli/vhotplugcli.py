@@ -52,16 +52,16 @@ def usb_list(client: APIClient):
             print(f"  {key:<16}: {value}")
         print()
 
-def usb_suspend(client: APIClient):
+def usb_suspend(client: APIClient, vm):
     client.connect()
-    res = client.usb_suspend()
+    res = client.usb_suspend(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to suspend USB: {res.get('error')}")
     logger.info("Successfully suspended")
 
-def usb_resume(client: APIClient):
+def usb_resume(client: APIClient, vm):
     client.connect()
-    res = client.usb_resume()
+    res = client.usb_resume(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
     logger.info("Successfully resumed")
@@ -110,16 +110,16 @@ def pci_list(client: APIClient):
             print(f"  {key:<16}: {value}")
         print()
 
-def pci_suspend(client: APIClient):
+def pci_suspend(client: APIClient, vm):
     client.connect()
-    res = client.pci_suspend()
+    res = client.pci_suspend(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to suspend PCI: {res.get('error')}")
     logger.info("Successfully suspended")
 
-def pci_resume(client: APIClient):
+def pci_resume(client: APIClient, vm):
     client.connect()
-    res = client.pci_resume()
+    res = client.pci_resume(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to resume PCI: {res.get('error')}")
     logger.info("Successfully resumed")
@@ -172,10 +172,12 @@ def main():
     usb_list_parser.set_defaults(func=lambda a, c: usb_list(c))
 
     usb_suspend_parser = usb_sub.add_parser("suspend", help="USB suspend")
-    usb_suspend_parser.set_defaults(func=lambda a, c: usb_suspend(c))
+    usb_suspend_parser.add_argument("--vm", help="Virtual machine name")
+    usb_suspend_parser.set_defaults(func=lambda a, c: usb_suspend(c, a.vm))
 
     usb_resume_parser = usb_sub.add_parser("resume", help="USB resume")
-    usb_resume_parser.set_defaults(func=lambda a, c: usb_resume(c))
+    usb_resume_parser.add_argument("--vm", help="Virtual machine name")
+    usb_resume_parser.set_defaults(func=lambda a, c: usb_resume(c, a.vm))
 
     listen_parser = subparsers.add_parser("listen", help="Listen for notifications")
     listen_parser.set_defaults(func=lambda a, c: listen_for_notifications(c))
@@ -200,10 +202,12 @@ def main():
     usb_list_parser.set_defaults(func=lambda a, c: pci_list(c))
 
     pci_suspend_parser = pci_sub.add_parser("suspend", help="PCI suspend")
-    pci_suspend_parser.set_defaults(func=lambda a, c: pci_suspend(c))
+    pci_suspend_parser.add_argument("--vm", help="Virtual machine name")
+    pci_suspend_parser.set_defaults(func=lambda a, c: pci_suspend(c, a.vm))
 
     pci_resume_parser = pci_sub.add_parser("resume", help="PCI resume")
-    pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c))
+    pci_resume_parser.add_argument("--vm", help="Virtual machine name")
+    pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c, a.vm))
 
     args = parser.parse_args()
 
