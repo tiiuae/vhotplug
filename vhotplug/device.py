@@ -135,9 +135,8 @@ async def attach_device_to_vm(app_context, dev_info, vm_name):
 
     is_usb_dev = isinstance(dev_info, USBInfo)
 
-    # Setup VFIO for PCI devices if needed
-    if not is_usb_dev and dev_info.driver != "vfio-pci":
-        logger.info("Setting up VFIO for device %s, current driver: %s", dev_info.address, dev_info.driver)
+    # Setup VFIO for all PCI devices in the IOMMU group if needed
+    if not is_usb_dev:
         setup_vfio(dev_info)
 
     # Attach device to the VM

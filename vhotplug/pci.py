@@ -84,34 +84,58 @@ def pci_device_by_vid_did(app_context, vid, did):
             return device
     return None
 
-def _unbind_driver(device_path, dev_info):
-    for _ in range(1, 5):
-        try:
-            with open(device_path / "driver/unbind", "w", encoding="utf-8") as f:
-                f.write(dev_info.address)
-            logger.info("Successfully unbound %s driver from %s", dev_info.driver, device_path)
-            break
-        except OSError as e:
-            logger.warning("Failed to unbind %s driver from %s: %s", dev_info.driver, device_path, e)
-        time.sleep(1)
-    else:
-        logger.error("Failed to unbind %s from %s after 5 attempts", dev_info.driver, device_path)
+def _get_pci_driver(pci_address):
+    """Returns PCI device driver name."""
 
-def setup_vfio(dev_info):
+    path = f"/sys/bus/pci/devices/{pci_address}/driver"
+    if os.path.islink(path):
+        return os.path.basename(os.readlink(path))
+    return None
+
+def _bind_vfio_pci(pci_address):
+    """Checks the driver assigned for the device and changes it to vfio-pci."""
+
+    device_path = f"/sys/bus/pci/devices/{pci_address}"
+
+    driver = _get_pci_driver(pci_address)
+    if driver == "vfio-pci":
+        return
+
+    # Unbind current driver
+    if driver:
+        logger.info("Device %s uses driver %s", pci_address, driver)
+        for _ in range(1, 5):
+            try:
+                with open(f"{device_path}/driver/unbind", "w", encoding="utf-8") as f:
+                    f.write(pci_address)
+                logger.info("Successfully unbound %s driver from %s", driver, device_path)
+                break
+            except OSError as e:
+                logger.warning("Failed to unbind %s driver from %s: %s", driver, device_path, e)
+            time.sleep(1)
+        else:
+            logger.error("Failed to unbind %s from %s after 5 attempts", driver, device_path)
+    else:
+        logger.warning("Device %s has no driver assigned", pci_address)
+
+    # Bind vfio-pci driver
+    with open(f"{device_path}/driver_override", "w", encoding="utf-8") as f:
+        f.write("vfio-pci")
+
+    with open("/sys/bus/pci/drivers_probe", "w", encoding="utf-8") as f:
+        f.write(pci_address)
+
+    logger.info("Successfully bound vfio-pci driver for %s", pci_address)
+
+def setup_vfio(pci_info):
+    """Checks PCI device IOMMU group and sets vfio-pci driver for all devices."""
+
+    logger.debug("Setting up vfio for %s", pci_info.address)
     try:
-        device_path = Path(f"/sys/bus/pci/devices/{dev_info.address}")
+        device_path = Path(f"/sys/bus/pci/devices/{pci_info.address}")
         if not device_path.exists():
             logger.error("Device path %s does not exist", device_path)
             return
-
-        if (device_path / "driver").exists():
-            _unbind_driver(device_path, dev_info)
-
-        with open(device_path / "driver_override", "w", encoding="utf-8") as f:
-            f.write("vfio-pci")
-
-        with open("/sys/bus/pci/drivers_probe", "w", encoding="utf-8") as f:
-            f.write(dev_info.address)
 
         # Wait for IOMMU group to appear
         for _ in range(1, 5):
@@ -121,17 +145,17 @@ def setup_vfio(dev_info):
                 time.sleep(0.1)
             else:
                 iommu_group_path = iommu_group.resolve()
-                logger.info("IOMMU group: %s", iommu_group_path.name)
+                logger.debug("IOMMU group: %s", iommu_group_path.name)
 
-                # List other devices in the same IOMMU group:
+                # List all devices in the IOMMU group and setup vfio-pci driver for them:
                 devices_dir = iommu_group_path / "devices"
                 if devices_dir.exists():
                     devices = sorted(os.listdir(devices_dir))
-                    logger.info("Devices the group:")
+                    logger.debug("Devices in the group:")
                     for dev in devices:
-                        logger.info(" - %s", dev)
+                        logger.debug(" - %s", dev)
+                        _bind_vfio_pci(dev)
                 break
 
-        logger.info("Successfully bound vfio-pci driver to %s", device_path)
     except OSError as e:
-        logger.error("Failed to setup VFIO for %s: %s", device_path, e)
+        logger.error("Failed to setup VFIO for %s: %s", pci_info.address, e)
