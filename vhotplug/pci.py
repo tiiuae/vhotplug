@@ -127,35 +127,41 @@ def _bind_vfio_pci(pci_address):
 
     logger.info("Successfully bound vfio-pci driver for %s", pci_address)
 
+def get_iommu_group_devices(pci_address):
+    device_path = Path(f"/sys/bus/pci/devices/{pci_address}")
+    if not device_path.exists():
+        logger.error("Device path %s does not exist", device_path)
+        return []
+
+    # Wait for IOMMU group to appear
+    for _ in range(1, 5):
+        iommu_group = device_path / "iommu_group"
+        if not iommu_group.exists():
+            logger.warning("IOMMU group does not exist")
+            time.sleep(0.1)
+        else:
+            iommu_group_path = iommu_group.resolve()
+            logger.debug("IOMMU group: %s", iommu_group_path.name)
+
+            # List all devices in the IOMMU group
+            devices_dir = iommu_group_path / "devices"
+            if devices_dir.exists():
+                devices = sorted(os.listdir(devices_dir))
+                return devices
+            break
+    return []
+
 def setup_vfio(pci_info):
     """Checks PCI device IOMMU group and sets vfio-pci driver for all devices."""
 
     logger.debug("Setting up vfio for %s", pci_info.address)
     try:
-        device_path = Path(f"/sys/bus/pci/devices/{pci_info.address}")
-        if not device_path.exists():
-            logger.error("Device path %s does not exist", device_path)
-            return
-
-        # Wait for IOMMU group to appear
-        for _ in range(1, 5):
-            iommu_group = device_path / "iommu_group"
-            if not iommu_group.exists():
-                logger.warning("IOMMU group does not exist")
-                time.sleep(0.1)
-            else:
-                iommu_group_path = iommu_group.resolve()
-                logger.debug("IOMMU group: %s", iommu_group_path.name)
-
-                # List all devices in the IOMMU group and setup vfio-pci driver for them:
-                devices_dir = iommu_group_path / "devices"
-                if devices_dir.exists():
-                    devices = sorted(os.listdir(devices_dir))
-                    logger.debug("Devices in the group:")
-                    for dev in devices:
-                        logger.debug(" - %s", dev)
-                        _bind_vfio_pci(dev)
-                break
+        devices = get_iommu_group_devices(pci_info.address)
+        # List all devices in the IOMMU group and setup vfio-pci driver for them:
+        logger.debug("Devices in the group:")
+        for dev in devices:
+            logger.debug(" - %s", dev)
+            _bind_vfio_pci(dev)
 
     except OSError as e:
         logger.error("Failed to setup VFIO for %s: %s", pci_info.address, e)

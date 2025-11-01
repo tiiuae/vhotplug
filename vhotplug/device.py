@@ -2,7 +2,7 @@ import logging
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.usb import USBInfo, get_usb_info, is_usb_hub, is_usb_device, usb_device_by_node, usb_device_by_bus_port, usb_device_by_vid_pid
-from vhotplug.pci import get_pci_info, pci_device_by_address, pci_device_by_vid_did, setup_vfio
+from vhotplug.pci import PCIInfo, get_pci_info, pci_device_by_address, pci_device_by_vid_did, setup_vfio, get_iommu_group_devices
 
 logger = logging.getLogger("vhotplug")
 
@@ -45,6 +45,7 @@ def _autoselect_vm(app_context, dev_info, allowed_vms):
     logger.info("Selecting %s as first option", allowed_vms[0])
     return allowed_vms[0]
 
+# pylint: disable=too-many-branches
 async def attach_device(app_context, dev_info, ask, vms_scope = None):
     """Find a VM and attach a device when it is plugged in or detected at startup."""
 
@@ -83,7 +84,19 @@ async def attach_device(app_context, dev_info, ask, vms_scope = None):
         logger.debug("Skipping %s because its VM is %s while only devices for %s are processed", dev_info.friendly_name(), target_vm, vms_scope)
         return
 
-    await attach_device_to_vm(app_context, dev_info, target_vm)
+    # For PCI devices, get a list of all devices in the IOMMU group and attach all of them to the same VM
+    if isinstance(dev_info, PCIInfo):
+        devices = get_iommu_group_devices(dev_info.address)
+        if len(devices) > 1:
+            logger.info("Device %s has %s devices in the same IOMMU group - adding all of them", dev_info.friendly_name(), len(devices))
+            for address in devices:
+                pci_dev = pci_device_by_address(app_context, address)
+                if pci_dev:
+                    pci_info = get_pci_info(pci_dev)
+                    await _attach_device_to_vm(app_context, pci_info, target_vm)
+            return
+
+    await _attach_device_to_vm(app_context, dev_info, target_vm)
 
 async def _attach_existing_device(app_context, dev_info, selected_vm):
     """Attach an existing device at the user's request."""
@@ -116,9 +129,9 @@ async def _attach_existing_device(app_context, dev_info, selected_vm):
             target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
     # Attach device to the VM
-    await attach_device_to_vm(app_context, dev_info, target_vm)
+    await _attach_device_to_vm(app_context, dev_info, target_vm)
 
-async def attach_device_to_vm(app_context, dev_info, vm_name):
+async def _attach_device_to_vm(app_context, dev_info, vm_name):
     """Gets VM details and attaches a device."""
 
     # Get VM details from the config
@@ -184,12 +197,27 @@ async def remove_device(app_context, dev_info):
     if not vm:
         raise RuntimeError(f"VM {current_vm_name} not found in the configuration file")
 
-    is_usb_dev = isinstance(dev_info, USBInfo)
+    # For PCI devices, get a list of all devices in the IOMMU group and remove all of them
+    if isinstance(dev_info, PCIInfo):
+        devices = get_iommu_group_devices(dev_info.address)
+        if len(devices) > 1:
+            logger.info("Device %s has %s devices in the same IOMMU group - removing all of them", dev_info.friendly_name(), len(devices))
+            for address in devices:
+                pci_dev = pci_device_by_address(app_context, address)
+                if pci_dev:
+                    pci_info = get_pci_info(pci_dev)
+                    await _remove_device_from_vm(app_context, pci_info, vm)
+            return
 
-    # Remove device from VM
+    await _remove_device_from_vm(app_context, dev_info, vm)
+
+async def _remove_device_from_vm(app_context, dev_info, vm):
+    """Removes device from VM."""
+
     vm_name = vm.get("name")
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
+    is_usb_dev = isinstance(dev_info, USBInfo)
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
         if is_usb_dev:
