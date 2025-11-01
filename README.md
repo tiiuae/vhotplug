@@ -129,7 +129,6 @@ options:
     ],
     "evdevPassthrough": {
         "disable": true,
-        "pcieBusPrefix": "ep",
         "targetVm": "vm1"
     },
     "vms": [

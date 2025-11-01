@@ -191,11 +191,10 @@ class Config:
             if evdev and self._disabled(evdev) is not True:
                 vm_name = evdev.get("targetVm")
                 logger.debug("Found VM %s for evdev passthrough", vm_name)
-                bus_prefix = evdev.get("pcieBusPrefix")
-                return self.get_vm(vm_name), bus_prefix
+                return self.get_vm(vm_name)
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for evdev device in the configuration file: %s", e)
-        return None, None
+        return None
 
     def get_all_vms(self):
         return self.config.get("vms", [])

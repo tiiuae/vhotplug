@@ -198,11 +198,17 @@ class QEMULink:
             qemuid = self._qemu_id_usb(usb_info)
             await self._execute("device_del", {"id": qemuid})
 
-    async def add_evdev_device(self, device, bus):
+    async def add_evdev_device(self, device):
         async with self._lock:
             if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
                 logger.warning("VM is not booted while adding device %s", device.device_node)
                 return
+
+            bus = await self._find_empty_pci_bridge()
+            if bus:
+                logger.info("Found empty PCI bridge: %s", bus)
+            else:
+                logger.warning("Could not find an empty PCI bridge in the VM")
 
             qemuid = self._qemu_id_evdev(device)
             logger.debug("Adding evdev device %s with id %s to bus %s", device.device_node, qemuid, bus)
@@ -229,7 +235,7 @@ class QEMULink:
                 return
 
             qemuid = await self._find_pci_device(pci_info)
-            if qemuid:
+            if qemuid is not None:
                 logger.info("PCI device %s is already attached to the VM with id %s", pci_info.friendly_name(), qemuid)
                 return
 
@@ -265,6 +271,7 @@ class QEMULink:
                 vid_match = pci_info.vendor_id and guest_vid and pci_info.vendor_id == guest_vid
                 did_match = pci_info.device_id and guest_did and pci_info.device_id == guest_did
 
+                # qdev_id can be an empty string when it's not set during passthrough
                 if vid_match and did_match:
                     return dev.get("qdev_id")
 
@@ -273,14 +280,14 @@ class QEMULink:
                     subdevs = pci_bridge.get("devices", [])
                     if subdevs:
                         qemu_id = walk_devices(subdevs)
-                        if qemu_id:
+                        if qemu_id is not None:
                             return qemu_id
 
             return None
 
         for root_bus in res:
             qemu_id = walk_devices(root_bus["devices"])
-            if qemu_id:
+            if qemu_id is not None:
                 return qemu_id
 
         return None
@@ -318,6 +325,10 @@ class QEMULink:
             qemuid = await self._find_pci_device(pci_info)
             if qemuid is None:
                 logger.error("PCI device %s not found in guest", pci_info.friendly_name())
+                return
+
+            if qemuid == "":
+                logger.error("PCI device %s qemu id is not set", pci_info.friendly_name())
                 return
 
             return await self._remove_pci_device_by_qemu_id(qemuid)

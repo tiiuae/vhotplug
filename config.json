@@ -93,7 +93,6 @@
         }
     ],
     "evdevPassthrough": {
-        "pcieBusPrefix": "ep",
         "targetVm": "vm1"
     },
     "vms": [

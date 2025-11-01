@@ -43,7 +43,7 @@ async def test_grab(device):
             return True
     return False
 
-async def attach_evdev_device(vm, busprefix, pcieport, device):
+async def attach_evdev_device(vm, device):
     """Attaches evdev device to QEMU."""
 
     vm_name = vm.get("name")
@@ -52,20 +52,18 @@ async def attach_evdev_device(vm, busprefix, pcieport, device):
         logger.error("Evdev passthrough is not supported for %s with type %s", vm_name, vm_type)
         return
     vm_socket = vm.get("socket")
-    bus = f"{busprefix}{pcieport}"
-    logger.info("Attaching evdev device to %s (%s) on bus %s", vm_name, vm_socket, bus)
+    logger.info("Attaching evdev device to %s (%s)", vm_name, vm_socket)
     qemu = QEMULink(vm_socket)
-    await qemu.add_evdev_device(device, bus)
+    await qemu.add_evdev_device(device)
 
 async def attach_connected_evdev(app_context):
     """Finds all non-USB evdev devices and attaches them to the selected VM."""
 
-    vm, busprefix = app_context.config.vm_for_evdev_devices()
+    vm = app_context.config.vm_for_evdev_devices()
     if vm is None:
         logger.debug("Evdev passthrough is not enabled")
         return
 
-    pcieport = 1
     logger.info("Checking connected non-USB input devices")
     for device in app_context.udev_context.list_devices(subsystem='input'):
         bus = device.properties.get("ID_BUS")
@@ -76,5 +74,7 @@ async def attach_connected_evdev(app_context):
             if await test_grab(device):
                 logger.info("The device is grabbed by another process, it is likely already connected to the VM")
             else:
-                await attach_evdev_device(vm, busprefix, pcieport, device)
-                pcieport += 1
+                try:
+                    await attach_evdev_device(vm, device)
+                except RuntimeError as e:
+                    logger.error("Failed to attach evdev device %s: %s", name, e)

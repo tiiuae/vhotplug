@@ -11,6 +11,7 @@ from vhotplug.config import Config
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.apiserver import APIServer
 from vhotplug.devicestate import DeviceState
+from vhotplug.pci import check_vfio
 
 logger = logging.getLogger("vhotplug")
 
@@ -79,7 +80,7 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
                     vms_restarted.append(vm.get("name"))
 
             # Check non-USB evdev devices when the target VM is restarted
-            vm, _ = app_context.config.vm_for_evdev_devices()
+            vm = app_context.config.vm_for_evdev_devices()
             if vm and vm.get("name") in vms_restarted:
                 await attach_connected_evdev(app_context)
             # Check PCI devices for restarted VMs
@@ -102,6 +103,8 @@ async def async_main():
     if not os.path.exists(args.config):
         logger.error("Configuration file %s not found", args.config)
         return
+
+    check_vfio()
 
     config = Config(args.config)
 

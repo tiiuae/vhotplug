@@ -159,3 +159,7 @@ def setup_vfio(pci_info):
 
     except OSError as e:
         logger.error("Failed to setup VFIO for %s: %s", pci_info.address, e)
+
+def check_vfio():
+    if not os.path.exists("/sys/module/vfio_pci"):
+        logger.warning("vfio-pci is not loaded")
