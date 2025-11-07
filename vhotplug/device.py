@@ -2,7 +2,7 @@ import logging
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.usb import USBInfo, get_usb_info, is_usb_hub, is_usb_device, usb_device_by_node, usb_device_by_bus_port, usb_device_by_vid_pid
-from vhotplug.pci import PCIInfo, get_pci_info, pci_device_by_address, pci_device_by_vid_did, setup_vfio, get_iommu_group_devices
+from vhotplug.pci import PCIInfo, get_pci_info, pci_info_by_address, pci_info_by_vid_did, setup_vfio, get_iommu_group_devices
 
 logger = logging.getLogger("vhotplug")
 
@@ -45,7 +45,7 @@ def _autoselect_vm(app_context, dev_info, allowed_vms):
     logger.info("Selecting %s as first option", allowed_vms[0])
     return allowed_vms[0]
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-return-statements
 async def attach_device(app_context, dev_info, ask, vms_scope = None):
     """Find a VM and attach a device when it is plugged in or detected at startup."""
 
@@ -84,17 +84,21 @@ async def attach_device(app_context, dev_info, ask, vms_scope = None):
         logger.debug("Skipping %s because its VM is %s while only devices for %s are processed", dev_info.friendly_name(), target_vm, vms_scope)
         return
 
-    # For PCI devices, get a list of all devices in the IOMMU group and attach all of them to the same VM
+    # For PCI devices, check IOMMU group
     if isinstance(dev_info, PCIInfo):
         devices = get_iommu_group_devices(dev_info.address)
         if len(devices) > 1:
-            logger.info("Device %s has %s devices in the same IOMMU group - adding all of them", dev_info.friendly_name(), len(devices))
-            for address in devices:
-                pci_dev = pci_device_by_address(app_context, address)
-                if pci_dev:
-                    pci_info = get_pci_info(pci_dev)
-                    await _attach_device_to_vm(app_context, pci_info, target_vm)
-            return
+            logger.info("Device %s has %s devices in the same IOMMU group", dev_info.friendly_name(), len(devices))
+            if res.pci_iommu_add_all:
+                logger.info("Adding all devices from IOMMU group")
+                for address in devices:
+                    pci_info = pci_info_by_address(app_context, address)
+                    if pci_info:
+                        await _attach_device_to_vm(app_context, pci_info, target_vm)
+                return
+            if res.pci_iommu_skip_if_shared:
+                logger.info("Skipping device since it shares IOMMU group with other devices")
+                return
 
     await _attach_device_to_vm(app_context, dev_info, target_vm)
 
@@ -190,6 +194,11 @@ async def remove_device(app_context, dev_info):
     if not current_vm_name:
         raise RuntimeError(f"VM not found for {dev_info.friendly_name()}")
 
+    # Find a rule for the device in the config file
+    res = app_context.config.vm_for_device(dev_info)
+    if not res:
+        raise RuntimeError(f"Device {dev_info.friendly_name()} doesn't match any rules")
+
     logger.info("Removing %s from %s", dev_info.friendly_name(), current_vm_name)
 
     # Check if the VM is valid
@@ -197,17 +206,21 @@ async def remove_device(app_context, dev_info):
     if not vm:
         raise RuntimeError(f"VM {current_vm_name} not found in the configuration file")
 
-    # For PCI devices, get a list of all devices in the IOMMU group and remove all of them
+    # For PCI devices, check IOMMU group
     if isinstance(dev_info, PCIInfo):
         devices = get_iommu_group_devices(dev_info.address)
         if len(devices) > 1:
-            logger.info("Device %s has %s devices in the same IOMMU group - removing all of them", dev_info.friendly_name(), len(devices))
-            for address in devices:
-                pci_dev = pci_device_by_address(app_context, address)
-                if pci_dev:
-                    pci_info = get_pci_info(pci_dev)
-                    await _remove_device_from_vm(app_context, pci_info, vm)
-            return
+            logger.info("Device %s has %s devices in the same IOMMU group", dev_info.friendly_name(), len(devices))
+            if res.pci_iommu_add_all:
+                logger.info("Removing all devices from IOMMU group")
+                for address in devices:
+                    pci_info = pci_info_by_address(app_context, address)
+                    if pci_info:
+                        await _remove_device_from_vm(app_context, pci_info, vm)
+                return
+            if res.pci_iommu_skip_if_shared:
+                logger.info("Skipping device since it shares IOMMU group with other devices")
+                return
 
     await _remove_device_from_vm(app_context, dev_info, vm)
 
@@ -358,38 +371,34 @@ async def detach_connected_usb(app_context, vms_scope = None):
 async def attach_existing_pci_device(app_context, pci_address, selected_vm):
     """Find PCI device by address and attach to selected VM."""
 
-    device = pci_device_by_address(app_context, pci_address)
-    if not device:
+    pci_info = pci_info_by_address(app_context, pci_address)
+    if not pci_info:
         raise RuntimeError(f"PCI device {pci_address} not found in the system")
-    pci_info = get_pci_info(device)
     await _attach_existing_device(app_context, pci_info, selected_vm)
 
 async def attach_existing_pci_device_by_vid_did(app_context, vid, did, selected_vm):
     """Find PCI device by vendor ID and device ID and attach to selected VM."""
 
-    device = pci_device_by_vid_did(app_context, int(vid, 16), int(did, 16))
-    if not device:
+    pci_info = pci_info_by_vid_did(app_context, int(vid, 16), int(did, 16))
+    if not pci_info:
         raise RuntimeError(f"PCI device {vid}:{did} not found in the system")
-    pci_info = get_pci_info(device)
     await _attach_existing_device(app_context, pci_info, selected_vm)
     return True
 
 async def remove_existing_pci_device(app_context, pci_address, permanent = False):
     """Find PCI device by address and detach from VM."""
 
-    device = pci_device_by_address(app_context, pci_address)
-    if not device:
+    pci_info = pci_info_by_address(app_context, pci_address)
+    if not pci_info:
         raise RuntimeError(f"PCI device {pci_address} not found in the system")
-    pci_info = get_pci_info(device)
     await _remove_existing_device(app_context, pci_info, permanent)
 
 async def remove_existing_pci_device_by_vid_did(app_context, vid, did, permanent = False):
     """Find PCI device by vendor ID and device ID and detach from VM."""
 
-    device = pci_device_by_vid_did(app_context, int(vid, 16), int(did, 16))
-    if not device:
+    pci_info = pci_info_by_vid_did(app_context, int(vid, 16), int(did, 16))
+    if not pci_info:
         raise RuntimeError(f"PCI device {vid}:{did} not found in the system")
-    pci_info = get_pci_info(device)
     await _remove_existing_device(app_context, pci_info, permanent)
     return True
 
@@ -421,23 +430,22 @@ async def detach_connected_pci(app_context, vms_scope = None):
         logger.info("Detaching PCI devices from %s", vms_scope)
 
     for pci_address in app_context.dev_state.list_pci_devices():
-        device = pci_device_by_address(app_context, pci_address)
-        if device is None:
+        pci_info = pci_info_by_address(app_context, pci_address)
+        if pci_info is None:
             logger.warning("Device %s not found in the system", pci_address)
         else:
             # Find a rule for the device in the config file
-            pci_info = get_pci_info(device)
             res = app_context.config.vm_for_device(pci_info)
             if res:
-                if res.skip_on_suspend:
-                    logger.info("Skipping PCI device %s during suspend", pci_info.friendly_name())
-                    continue
-
                 if vms_scope:
                     current_vm_name = app_context.dev_state.get_vm_for_device(pci_info)
                     if current_vm_name not in vms_scope:
                         logger.debug("Skipping PCI device %s attached to %s while only devices for %s are processed", pci_info.friendly_name(), current_vm_name, vms_scope)
                         continue
+
+                if res.skip_on_suspend:
+                    logger.info("Skipping PCI device %s during suspend", pci_info.friendly_name())
+                    continue
 
                 try:
                     await _remove_existing_device(app_context, pci_info)
@@ -446,43 +454,88 @@ async def detach_connected_pci(app_context, vms_scope = None):
             else:
                 logger.warning("Device %s does not match any rules", pci_info.friendly_name())
 
-def get_devices(app_context, usb):
-    """Returns a list of all devices that match the rules from the config."""
+def get_usb_devices(app_context):
+    """Returns a list of all USB devices that match the rules from the config."""
 
     dev_list = []
-    for device in app_context.udev_context.list_devices(subsystem="usb" if usb else "pci"):
-        if usb:
-            if not is_usb_device(device):
-                continue
+    for device in app_context.udev_context.list_devices(subsystem="usb"):
+        if not is_usb_device(device):
+            continue
 
-            dev_info = get_usb_info(device)
+        dev_info = get_usb_info(device)
 
-            if is_usb_hub(dev_info.interfaces):
-                continue
+        if is_usb_hub(dev_info.interfaces):
+            continue
 
-            if dev_info.is_boot_device(app_context.udev_context):
-                continue
-        else:
-            dev_info = get_pci_info(device)
+        if dev_info.is_boot_device(app_context.udev_context):
+            continue
 
         res = app_context.config.vm_for_device(dev_info)
         if res:
-
-            # Convert device info to a dictionary
-            dev = dev_info.to_dict()
-
-            # Add allowed VMs
-            if res.target_vm:
-                dev["allowed_vms"] = [res.target_vm]
-            else:
-                dev["allowed_vms"] = res.allowed_vms
-
-            # Get current VM name
+            # Get allowed vms or target vm
+            allowed_vms = [res.target_vm] if res.target_vm else res.allowed_vms
+            # Get current vm
             current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
-            if current_vm_name and not app_context.dev_state.is_disconnected(dev_info):
-                dev["vm"] = current_vm_name
-            else:
-                dev["vm"] = None
+            if app_context.dev_state.is_disconnected(dev_info):
+                current_vm_name = None
 
+            dev = dev_info.to_dict()
+            dev["allowed_vms"] = allowed_vms
+            dev["vm"] = current_vm_name
             dev_list.append(dev)
+
+    return dev_list
+
+# pylint: disable = too-many-nested-blocks
+def get_pci_devices(app_context):
+    """Returns a list of all PCI devices that match the rules from the config."""
+
+    dev_list = []
+    for device in app_context.udev_context.list_devices(subsystem="pci"):
+        dev_info = get_pci_info(device)
+
+        res = app_context.config.vm_for_device(dev_info)
+        if res:
+            # Get allowed vms or target vm
+            allowed_vms = [res.target_vm] if res.target_vm else res.allowed_vms
+            # Get current vm
+            current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
+            if app_context.dev_state.is_disconnected(dev_info):
+                current_vm_name = None
+
+            # Skip if the devices was already added as a part of IOMMU group
+            if any(d.get("address") == dev_info.address for d in dev_list):
+                continue
+
+            # Check PCI devices from IOMMU group
+            iommu_devs = []
+            devices = get_iommu_group_devices(dev_info.address)
+            if len(devices) > 1:
+                if res.pci_iommu_skip_if_shared:
+                    continue
+
+                if res.pci_iommu_add_all:
+                    for address in devices:
+                        if address != dev_info.address:
+                            pci_info = pci_info_by_address(app_context, address)
+                            if pci_info:
+                                iommu_devs.append(pci_info)
+
+            # Add current device
+            dev = dev_info.to_dict()
+            dev["allowed_vms"] = allowed_vms
+            dev["vm"] = current_vm_name
+            dev_list.append(dev)
+
+            # Add devices from the same IOMMU group
+            for iommu_dev in iommu_devs:
+                if any(d.get("address") == iommu_dev.address for d in dev_list):
+                    continue
+
+                dev = iommu_dev.to_dict()
+                dev["allowed_vms"] = allowed_vms
+                dev["vm"] = current_vm_name
+                dev["iommu_member"] = True
+                dev_list.append(dev)
+
     return dev_list

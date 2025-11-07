@@ -12,6 +12,8 @@ class PassthroughInfo:
     target_vm: Optional[str]
     allowed_vms: Optional[List[str]]
     skip_on_suspend: bool = False
+    pci_iommu_add_all: bool = False
+    pci_iommu_skip_if_shared: bool = False
 
 class Config:
     def __init__(self, path):
@@ -35,6 +37,12 @@ class Config:
         if "disable" in node:
             return not bool(node["disable"])
         return default
+
+    def _hex_to_int(self, s):
+        try:
+            return int(s, 16) if s else None
+        except (ValueError, TypeError):
+            return None
 
     # pylint: disable = too-many-locals, too-many-return-statements
     def _match_usb(self, usb_info, usb_rule):
@@ -122,8 +130,8 @@ class Config:
             return True
 
         # Match by VID/DID
-        rule_vid = int(rule.get("vendorId"), 16) if "vendorId" in rule else None
-        rule_did = int(rule.get("deviceId"), 16) if "deviceId" in rule else None
+        rule_vid = self._hex_to_int(rule.get("vendorId"))
+        rule_did = self._hex_to_int(rule.get("deviceId"))
         if rule_vid and rule_did and pci_info.vendor_id and pci_info.device_id:
             logger.debug("Checking %04x:%04x against %04x:%04x", pci_info.vendor_id, pci_info.device_id, rule_vid, rule_did)
             if pci_info.vendor_id == rule_vid and pci_info.device_id == rule_did:
@@ -172,14 +180,17 @@ class Config:
                 if found:
                     target_vm = rule.get("targetVm")
                     allowed_vms = rule.get("allowedVms")
-                    skip_on_suspend = rule.get("skipOnSuspend", False)
                     if target_vm:
                         logger.debug("Found VM %s for %s", target_vm, dev_name)
                     elif allowed_vms:
                         logger.debug("Found allowed VMs %s for %s", allowed_vms, dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
-                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend)
+
+                    skip_on_suspend = rule.get("skipOnSuspend", False)
+                    pci_iommu_add_all = rule.get("pciIommuAddAll", False)
+                    pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
+                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared)
 
         except (AttributeError, TypeError) as e:
             logger.error("Failed to find VM for device in the configuration file: %s", e)

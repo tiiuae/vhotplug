@@ -4,7 +4,7 @@ import json
 import logging
 import asyncio
 import os
-from vhotplug.device import (get_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
+from vhotplug.device import (get_usb_devices, get_pci_devices, attach_existing_usb_device, attach_existing_usb_device_by_bus_port, attach_existing_usb_device_by_vid_pid,
     remove_existing_usb_device, remove_existing_usb_device_by_bus_port, remove_existing_usb_device_by_vid_pid,
     attach_connected_usb, detach_connected_usb, attach_connected_pci, detach_connected_pci,
     attach_existing_pci_device, attach_existing_pci_device_by_vid_did, remove_existing_pci_device, remove_existing_pci_device_by_vid_did,
@@ -223,7 +223,7 @@ class APIServer:
         return {"result": "ok"}
 
     def _on_usb_list(self, _client_sock, _client_addr, _msg):
-        return {"result": "ok", "usb_devices": get_devices(self.app_context, True)}
+        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
 
     def _on_usb_attach(self, _client_sock, _client_addr, msg):
         device_node = msg.get("device_node")
@@ -297,7 +297,7 @@ class APIServer:
         return {"result": "ok"}
 
     def _on_pci_list(self, _client_sock, _client_addr, _msg):
-        return {"result": "ok", "pci_devices": get_devices(self.app_context, False)}
+        return {"result": "ok", "pci_devices": get_pci_devices(self.app_context)}
 
     def _on_pci_attach(self, _client_sock, _client_addr, msg):
         address = msg.get("address")
