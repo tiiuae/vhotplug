@@ -2,6 +2,7 @@
 
 The API provides a mechanism for managing USB device hotplug events and controlling their attachment to virtual machines.
 Communication is performed over JSON-encoded messages exchanged through either a TCP or VSOCK connection.
+
 - Each message must be a valid JSON object encoded in UTF-8 and terminated with a newline (\n).
 - Each request sent by the client results in a synchronous response from vhotplug.
 - Every response contains a result field with value "ok" or "failed".

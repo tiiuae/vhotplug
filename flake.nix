@@ -33,9 +33,7 @@
         {
           config,
           self',
-          inputs',
           pkgs,
-          system,
           ...
         }:
         {
@@ -97,7 +95,7 @@
 
             programs = {
               # Python formatting
-              ruff-format.enable = true;
+              # ruff-format.enable = true;
               # TODO: maybe instead of pylint?
               # ruff-check.enable = true;
 
@@ -114,9 +112,6 @@
               };
             };
           };
-
-          # Formatter for 'nix fmt'
-          formatter = config.treefmt.build.wrapper;
         };
     };
 }
