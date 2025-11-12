@@ -1,0 +1,11 @@
+[tool.mypy]
+# Only ignore specific modules without type stubs
+# This allows mypy to still catch missing imports for other libraries
+
+[[tool.mypy.overrides]]
+module = "pyudev.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "inotify_simple.*"
+ignore_missing_imports = true

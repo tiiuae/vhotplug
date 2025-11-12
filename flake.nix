@@ -36,6 +36,18 @@
           pkgs,
           ...
         }:
+        let
+          pythonDeps = with pkgs.python3.pkgs; [
+            inotify-simple
+            psutil
+            pyudev
+            qemu-qmp
+            pytest
+          ];
+          pythonTypeDeps = pythonDeps ++ [
+            pkgs.python3.pkgs.types-psutil
+          ];
+        in
         {
           # Package definition
           packages = {
@@ -47,12 +59,7 @@
 
               format = "setuptools";
 
-              propagatedBuildInputs = with pkgs.python3Packages; [
-                inotify-simple
-                psutil
-                pyudev
-                qemu-qmp
-              ];
+              propagatedBuildInputs = pythonDeps;
 
               # Skip tests if they exist
               doCheck = false;
@@ -109,6 +116,20 @@
                   "*.json"
                   "*.md"
                 ];
+              };
+
+              # Type checking
+              mypy.enable = true;
+              mypy.directories = {
+                "vhotplug" = {
+                  extraPythonPackages = pythonTypeDeps;
+                };
+                "vhotplugcli" = {
+                  extraPythonPackages = pythonTypeDeps;
+                };
+                "tests" = {
+                  extraPythonPackages = pythonTypeDeps;
+                };
               };
             };
           };
