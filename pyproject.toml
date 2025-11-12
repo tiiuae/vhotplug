@@ -1,3 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vhotplug"
+version = "1.0"
+description = "Hot-plugging USB and PCI devices to virtual machines"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.8"
+dependencies = [
+    "inotify-simple>=1.3.5",
+    "psutil>=6.0.0",
+    "pyudev>=0.24.3",
+    "qemu.qmp>=0.0.3",
+]
+
+[project.scripts]
+vhotplug = "vhotplug.vhotplug:main"
+vhotplugcli = "vhotplugcli.vhotplugcli:main"
+
+[project.urls]
+Homepage = "https://github.com/tiiuae/vhotplug"
+
+[tool.setuptools.packages.find]
+include = ["vhotplug*", "vhotplugcli*"]
+
 [tool.mypy]
 # Only ignore specific modules without type stubs
 # This allows mypy to still catch missing imports for other libraries
