@@ -8,29 +8,28 @@ on:
       - master
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  nix-checks:
+    strategy:
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.12
+      - uses: actions/checkout@v4
 
-      - name: Setup venv
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pylint pytest
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
 
       - name: Run pylint
+        if: matrix.system == 'x86_64-linux'
         run: |
-          source venv/bin/activate
-          pylint ./vhotplug
-          pylint ./vhotplugcli
+          nix develop --command bash -c "
+            pylint ./vhotplug
+            pylint ./vhotplugcli
+          "
 
-      - name: Run pytest
-        run:  |
-          source venv/bin/activate
-          pytest ./tests
+      - name: Build with nix-fast-build
+        run: nix run --inputs-from . nixpkgs#nix-fast-build -- --skip-cached --no-nom --systems "${{ matrix.system }}"
