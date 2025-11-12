@@ -1,8 +1,12 @@
 import logging
 import asyncio
 import re
+import pyudev
+from typing import Any
 from qemu.qmp import QMPClient, QMPError
 from vhotplug.vmm import wait_for_boot_qemu
+from vhotplug.usb import USBInfo
+from vhotplug.pci import PCIInfo
 
 logger = logging.getLogger("vhotplug")
 
@@ -13,11 +17,11 @@ class QEMULink:
     vm_retry_timeout = 1
     vm_boot_timeout = 1
 
-    def __init__(self, socket_path):
+    def __init__(self, socket_path: str) -> None:
         self.socket_path = socket_path
         self._lock = asyncio.Lock()
 
-    async def _wait_for_vm(self):
+    async def _wait_for_vm(self) -> None:
         while True:
             try:
                 status = await self.query_status()
@@ -29,16 +33,16 @@ class QEMULink:
                 logger.error("Failed to query VM status: %s", e)
             await asyncio.sleep(1)
 
-    def _qemu_id_usb(self, usb_info):
+    def _qemu_id_usb(self, usb_info: USBInfo) -> str:
         return f"usb{usb_info.busnum}{usb_info.devnum}"
 
-    def _qemu_id_pci(self, pci_info):
+    def _qemu_id_pci(self, pci_info: PCIInfo) -> str:
         return pci_info.runtime_id()
 
-    def _qemu_id_evdev(self, device):
+    def _qemu_id_evdev(self, device: pyudev.Device) -> str:
         return f"evdev-{device.sys_name}"
 
-    async def _execute(self, cmd, args = None, retry=True):
+    async def _execute(self, cmd: str, args: dict[str, Any] | None = None, retry: bool = True) -> dict[str, Any] | list[Any] | str:
         last_error = None
 
         for attempt in range(1, self.vm_retry_count + 1):
@@ -51,6 +55,8 @@ class QEMULink:
                     last_error = res["error"]
                     logger.warning("QMP command %s failed: %s", cmd, last_error)
                 else:
+                    # QMP returns object, but we know it's one of these types
+                    assert isinstance(res, (dict, list, str)), f"Unexpected QMP response type: {type(res)}"
                     return res
 
             except QMPError as e:
@@ -67,26 +73,26 @@ class QEMULink:
 
         raise RuntimeError(last_error)
 
-    async def _execute_simple(self, cmd, args = None):
+    async def _execute_simple(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any] | list[Any] | str | None:
         try:
             return await self._execute(cmd, args, False)
         except RuntimeError as e:
             logger.error(str(e))
             return None
 
-    async def query_commands(self):
+    async def query_commands(self) -> None:
         res = await self._execute_simple("query-commands")
         if res:
             logger.info("QMP Commands:")
             for x in res:
                 logger.info(x)
 
-    async def usb(self):
+    async def usb(self) -> list[str]:
         """Returns a list of QEMU IDs for USB devices attached to the VM."""
 
-        ids = []
+        ids: list[str] = []
         res = await self._execute_simple("human-monitor-command", {"command-line": "info usb"})
-        if res:
+        if res and isinstance(res, str):
             logger.debug("Guest USB Devices:")
             for line in res.splitlines():
                 logger.debug("%s", line)
@@ -96,39 +102,41 @@ class QEMULink:
                     ids.append(match.group(1))
         return ids
 
-    async def usbhost(self):
+    async def usbhost(self) -> None:
         res = await self._execute_simple("human-monitor-command", {"command-line": "info usbhost"})
-        if res:
+        if res and isinstance(res, str):
             logger.debug("Host USB Devices:")
             for line in res.splitlines():
                 logger.info("%s", line)
 
-    async def query_status(self):
+    async def query_status(self) -> str | None:
         res = await self._execute_simple("query-status")
-        if res:
-            return res['status']
+        if res and isinstance(res, dict):
+            return str(res['status'])
+        return None
 
-    async def query_usb(self):
+    async def query_usb(self) -> None:
         """This command is unstable/experimental and meant for debugging."""
 
         res = await self._execute_simple("x-query-usb")
-        if res:
+        if res and isinstance(res, dict):
             # Example: '  Device 0.1, Port 1, Speed 12 Mb/s, Product host:3.2, ID: usb32\n'
             logger.info("USB: %s", res['human-readable-text'])
 
-    async def query_pci(self):
+    async def query_pci(self) -> list[dict[str, Any]] | None:
         res = await self._execute_simple("query-pci")
-        if res:
+        if res and isinstance(res, list):
             logger.debug("PCI: %s", res)
             return res
+        return None
 
-    async def print_pci(self):
+    async def print_pci(self) -> None:
         res = await self.query_pci()
         if not res:
             return
 
         # pylint: disable = too-many-locals
-        def walk_devices(devices, indent=0):
+        def walk_devices(devices: list[dict[str, Any]], indent: int = 0) -> None:
             for dev in devices:
                 qdev_id = dev.get("qdev_id")
                 vid = f"{dev["id"].get("vendor", 0):04x}"
@@ -159,11 +167,11 @@ class QEMULink:
         for root_bus in res:
             walk_devices(root_bus["devices"], 2)
 
-    async def _find_usb_device(self, qemuid):
+    async def _find_usb_device(self, qemuid: str) -> bool:
         devs = await self.usb()
         return qemuid in devs
 
-    async def add_usb_device(self, usb_info):
+    async def add_usb_device(self, usb_info: USBInfo) -> None:
         async with self._lock:
             if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
                 logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
@@ -178,7 +186,7 @@ class QEMULink:
             await self._execute("device_add", {"driver": "usb-host", "hostbus": usb_info.busnum, "hostaddr": usb_info.devnum, "id": qemuid})
             logger.info("Attached USB device %s with id %s", usb_info.friendly_name(), qemuid)
 
-    async def add_usb_device_by_vid_pid(self, usb_info):
+    async def add_usb_device_by_vid_pid(self, usb_info: USBInfo) -> None:
         async with self._lock:
             if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
                 logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
@@ -190,15 +198,16 @@ class QEMULink:
                 return
 
             logger.info("Adding USB device %s:%s with id %s to %s", usb_info.vid, usb_info.pid, qemuid, self.socket_path)
+            assert usb_info.vid is not None and usb_info.pid is not None, "VID and PID must be set"
             await self._execute("device_add", {"driver": "usb-host", "vendorid": int(usb_info.vid, 16), "productid": int(usb_info.pid, 16), "id": qemuid})
             logger.info("Attached USB device %s with id %s", usb_info.friendly_name(), qemuid)
 
-    async def remove_usb_device(self, usb_info):
+    async def remove_usb_device(self, usb_info: USBInfo) -> None:
         async with self._lock:
             qemuid = self._qemu_id_usb(usb_info)
             await self._execute("device_del", {"id": qemuid})
 
-    async def add_evdev_device(self, device):
+    async def add_evdev_device(self, device: pyudev.Device) -> None:
         async with self._lock:
             if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
                 logger.warning("VM is not booted while adding device %s", device.device_node)
@@ -221,14 +230,14 @@ class QEMULink:
                     return
                 raise
 
-    async def remove_evdev_device(self, device):
+    async def remove_evdev_device(self, device: pyudev.Device) -> None:
         async with self._lock:
             logger.debug("Removing evdev device %s with id %s", device.device_node, device.sys_name)
             qemuid = self._qemu_id_evdev(device)
             await self._execute("device_del", {"id": qemuid})
             logger.debug("Removed evdev device %s", device.sys_name)
 
-    async def add_pci_device(self, pci_info):
+    async def add_pci_device(self, pci_info: PCIInfo) -> None:
         async with self._lock:
             if not wait_for_boot_qemu(self.socket_path, self.vm_boot_timeout, 0):
                 logger.warning("VM is not booted while adding device %s", pci_info.friendly_name())
@@ -250,21 +259,21 @@ class QEMULink:
             await self._execute("device_add", {"driver": "vfio-pci", "host": pci_info.address, "id": qemuid, "bus": bus})
             logger.info("Attached PCI device: %s", qemuid)
 
-    async def _remove_pci_device_by_qemu_id(self, qemuid):
+    async def _remove_pci_device_by_qemu_id(self, qemuid: str) -> None:
         await self._execute("device_del", {"id": qemuid}, False)
         logger.info("Removed PCI device %s from %s", qemuid, self.socket_path)
 
-    async def remove_pci_device(self, pci_info):
+    async def remove_pci_device(self, pci_info: PCIInfo) -> None:
         async with self._lock:
             qemuid = self._qemu_id_pci(pci_info)
-            return await self._remove_pci_device_by_qemu_id(qemuid)
+            await self._remove_pci_device_by_qemu_id(qemuid)
 
-    async def _find_pci_device(self, pci_info):
+    async def _find_pci_device(self, pci_info: PCIInfo) -> str | None:
         res = await self.query_pci()
         if not res:
             return None
 
-        def walk_devices(devices):
+        def walk_devices(devices: list[dict[str, Any]]) -> str | None:
             for dev in devices:
                 guest_vid = dev["id"].get("vendor")
                 guest_did = dev["id"].get("device")
@@ -292,12 +301,12 @@ class QEMULink:
 
         return None
 
-    async def _find_empty_pci_bridge(self):
+    async def _find_empty_pci_bridge(self) -> str | None:
         res = await self.query_pci()
         if not res:
             return None
 
-        def walk_devices(devices):
+        def walk_devices(devices: list[dict[str, Any]]) -> str | None:
             for dev in devices:
                 pci_bridge = dev.get("pci_bridge")
                 if pci_bridge:
@@ -309,18 +318,18 @@ class QEMULink:
                     else:
                         qemu_id = dev.get("qdev_id")
                         if qemu_id:
-                            return qemu_id
+                            return str(qemu_id)
 
             return None
 
         for root_bus in res:
             qemu_id = walk_devices(root_bus["devices"])
             if qemu_id:
-                return qemu_id
+                return str(qemu_id)
 
         return None
 
-    async def remove_pci_device_by_vid_did(self, pci_info):
+    async def remove_pci_device_by_vid_did(self, pci_info: PCIInfo) -> None:
         async with self._lock:
             qemuid = await self._find_pci_device(pci_info)
             if qemuid is None:
@@ -331,4 +340,4 @@ class QEMULink:
                 logger.error("PCI device %s qemu id is not set", pci_info.friendly_name())
                 return
 
-            return await self._remove_pci_device_by_qemu_id(qemuid)
+            await self._remove_pci_device_by_qemu_id(qemuid)

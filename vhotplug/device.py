@@ -1,12 +1,18 @@
 import logging
+import pyudev
+from typing import Any, TYPE_CHECKING
 from vhotplug.qemulink import QEMULink
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.usb import USBInfo, get_usb_info, is_usb_hub, is_usb_device, usb_device_by_node, usb_device_by_bus_port, usb_device_by_vid_pid
 from vhotplug.pci import PCIInfo, get_pci_info, pci_info_by_address, pci_info_by_vid_did, setup_vfio, get_iommu_group_devices
 
+# TYPE_CHECKING to avoid circular import
+if TYPE_CHECKING:
+    from vhotplug.vhotplug import AppContext
+
 logger = logging.getLogger("vhotplug")
 
-def log_device(device, level=logging.DEBUG):
+def log_device(device: pyudev.Device, level: int = logging.DEBUG) -> None:
     """Logs all udev device properties for debugging."""
 
     try:
@@ -34,7 +40,7 @@ def log_device(device, level=logging.DEBUG):
     except AttributeError as e:
         logger.warning(e)
 
-def _autoselect_vm(app_context, dev_info, allowed_vms):
+def _autoselect_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, allowed_vms: list[str]) -> str:
     """Select the last used VM from the state database or fall back to the first one in the list of allowed vms"""
 
     current_vm_name = app_context.dev_state.get_selected_vm_for_device(dev_info)
@@ -46,7 +52,7 @@ def _autoselect_vm(app_context, dev_info, allowed_vms):
     return allowed_vms[0]
 
 # pylint: disable=too-many-branches,too-many-return-statements
-async def attach_device(app_context, dev_info, ask, vms_scope = None):
+async def attach_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo, ask: bool, vms_scope: list[str] | None = None) -> None:
     """Find a VM and attach a device when it is plugged in or detected at startup."""
 
     # Find a rule for the device in the config file
@@ -78,6 +84,7 @@ async def attach_device(app_context, dev_info, ask, vms_scope = None):
             logger.error("Multiple VMs for %s are not allowed (only supported for USB)", dev_info.friendly_name())
 
         # Try to select the last used VM from the state database or fall back to the first one in the list
+        assert res.allowed_vms is not None, "allowed_vms must be set when target_vm is None"
         target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
     if vms_scope and target_vm not in vms_scope:
@@ -86,6 +93,7 @@ async def attach_device(app_context, dev_info, ask, vms_scope = None):
 
     # For PCI devices, check IOMMU group
     if isinstance(dev_info, PCIInfo):
+        assert dev_info.address is not None, "PCI address cannot be None"
         devices = get_iommu_group_devices(dev_info.address)
         if len(devices) > 1:
             logger.info("Device %s has %s devices in the same IOMMU group", dev_info.friendly_name(), len(devices))
@@ -102,7 +110,7 @@ async def attach_device(app_context, dev_info, ask, vms_scope = None):
 
     await _attach_device_to_vm(app_context, dev_info, target_vm)
 
-async def _attach_existing_device(app_context, dev_info, selected_vm):
+async def _attach_existing_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo, selected_vm: str | None) -> None:
     """Attach an existing device at the user's request."""
 
     # Don't allow attaching a USB drive used as a boot device
@@ -135,7 +143,7 @@ async def _attach_existing_device(app_context, dev_info, selected_vm):
     # Attach device to the VM
     await _attach_device_to_vm(app_context, dev_info, target_vm)
 
-async def _attach_device_to_vm(app_context, dev_info, vm_name):
+async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, vm_name: str) -> None:
     """Gets VM details and attaches a device."""
 
     # Get VM details from the config
@@ -154,25 +162,24 @@ async def _attach_device_to_vm(app_context, dev_info, vm_name):
         except RuntimeError as e:
             logger.warning("Failed to remove: %s", e)
 
-    is_usb_dev = isinstance(dev_info, USBInfo)
-
     # Setup VFIO for all PCI devices in the IOMMU group if needed
-    if not is_usb_dev:
+    if isinstance(dev_info, PCIInfo):
         setup_vfio(dev_info)
 
     # Attach device to the VM
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
+    assert vm_socket is not None, "VM socket must be set"
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
-        if is_usb_dev:
+        if isinstance(dev_info, USBInfo):
             #await qemu.add_usb_device_by_vid_pid(usb_info)
             await qemu.add_usb_device(dev_info)
         else:
             await qemu.add_pci_device(dev_info)
     elif vm_type == "crosvm":
         crosvm = CrosvmLink(vm_socket, app_context.config.config.get("general", {}).get("crosvm"))
-        if is_usb_dev:
+        if isinstance(dev_info, USBInfo):
             await crosvm.add_usb_device(dev_info)
         else:
             await crosvm.add_pci_device(dev_info)
@@ -184,9 +191,9 @@ async def _attach_device_to_vm(app_context, dev_info, vm_name):
     app_context.dev_state.clear_disconnected(dev_info)
 
     if app_context.api_server:
-        app_context.api_server.notify_dev_attached(dev_info, vm_name, is_usb_dev)
+        app_context.api_server.notify_dev_attached(dev_info, vm_name)
 
-async def remove_device(app_context, dev_info):
+async def remove_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo) -> None:
     """Find a VM selected for the device and remove it."""
 
     # Get current VM for the device from the state database
@@ -208,6 +215,7 @@ async def remove_device(app_context, dev_info):
 
     # For PCI devices, check IOMMU group
     if isinstance(dev_info, PCIInfo):
+        assert dev_info.address is not None, "PCI address cannot be None"
         devices = get_iommu_group_devices(dev_info.address)
         if len(devices) > 1:
             logger.info("Device %s has %s devices in the same IOMMU group", dev_info.friendly_name(), len(devices))
@@ -224,16 +232,17 @@ async def remove_device(app_context, dev_info):
 
     await _remove_device_from_vm(app_context, dev_info, vm)
 
-async def _remove_device_from_vm(app_context, dev_info, vm):
+async def _remove_device_from_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, vm: dict[str, str]) -> None:
     """Removes device from VM."""
 
     vm_name = vm.get("name")
+    assert vm_name is not None, "VM name must be set"
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
-    is_usb_dev = isinstance(dev_info, USBInfo)
+    assert vm_socket is not None, "VM socket must be set"
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
-        if is_usb_dev:
+        if isinstance(dev_info, USBInfo):
             await qemu.remove_usb_device(dev_info)
         else:
             # Here we can detach the device by its QEMU ID if vhotplug manages all devices.
@@ -246,10 +255,10 @@ async def _remove_device_from_vm(app_context, dev_info, vm):
     elif vm_type == "crosvm":
         # Crosvm seems to automatically remove the device from the list so this code is not really used
         crosvm = CrosvmLink(vm_socket, app_context.config.config.get("crosvm"))
-        if is_usb_dev:
-            crosvm.remove_usb_device(dev_info)
+        if isinstance(dev_info, USBInfo):
+            await crosvm.remove_usb_device(dev_info)
         else:
-            crosvm.remove_pci_device(dev_info)
+            await crosvm.remove_pci_device(dev_info)
     else:
         raise RuntimeError(f"Unsupported vm type: {vm_type}")
 
@@ -257,9 +266,9 @@ async def _remove_device_from_vm(app_context, dev_info, vm):
     app_context.dev_state.remove_vm_for_device(dev_info)
 
     if app_context.api_server:
-        app_context.api_server.notify_dev_detached(dev_info, vm_name, is_usb_dev)
+        app_context.api_server.notify_dev_detached(dev_info, vm_name)
 
-async def _remove_existing_device(app_context, dev_info, permanent = False):
+async def _remove_existing_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo, permanent: bool = False) -> None:
     """Remove existing device at the user's request."""
 
     # Remove device from the VM
@@ -269,49 +278,49 @@ async def _remove_existing_device(app_context, dev_info, permanent = False):
     if permanent:
         app_context.dev_state.set_disconnected(dev_info)
 
-async def attach_existing_usb_device(app_context, device_node, selected_vm):
+async def attach_existing_usb_device(app_context: "AppContext", device_node: str, selected_vm: str | None) -> None:
     device = usb_device_by_node(app_context, device_node)
     if not device:
         raise RuntimeError(f"USB device {device_node} not found in the system")
     usb_info = get_usb_info(device)
     await _attach_existing_device(app_context, usb_info, selected_vm)
 
-async def attach_existing_usb_device_by_bus_port(app_context, bus, port, selected_vm):
+async def attach_existing_usb_device_by_bus_port(app_context: "AppContext", bus: int, port: int, selected_vm: str | None) -> None:
     device = usb_device_by_bus_port(app_context, bus, port)
     if not device:
         raise RuntimeError(f"USB device with bus {bus} and port {port} not found in the system")
     usb_info = get_usb_info(device)
     await _attach_existing_device(app_context, usb_info, selected_vm)
 
-async def attach_existing_usb_device_by_vid_pid(app_context, vid, pid, selected_vm):
+async def attach_existing_usb_device_by_vid_pid(app_context: "AppContext", vid: str, pid: str, selected_vm: str | None) -> None:
     device = usb_device_by_vid_pid(app_context, vid, pid)
     if not device:
         raise RuntimeError(f"USB device {vid}:{pid} not found in the system")
     usb_info = get_usb_info(device)
     await _attach_existing_device(app_context, usb_info, selected_vm)
 
-async def remove_existing_usb_device(app_context, device_node, permanent = False):
+async def remove_existing_usb_device(app_context: "AppContext", device_node: str, permanent: bool = False) -> None:
     device = usb_device_by_node(app_context, device_node)
     if not device:
         raise RuntimeError(f"USB device {device_node} not found in the system")
     usb_info = get_usb_info(device)
     await _remove_existing_device(app_context, usb_info, permanent)
 
-async def remove_existing_usb_device_by_bus_port(app_context, bus, port, permanent = False):
+async def remove_existing_usb_device_by_bus_port(app_context: "AppContext", bus: int, port: int, permanent: bool = False) -> None:
     device = usb_device_by_bus_port(app_context, bus, port)
     if not device:
         raise RuntimeError(f"USB device with bus {bus} and port {port} not found in the system")
     usb_info = get_usb_info(device)
     await _remove_existing_device(app_context, usb_info, permanent)
 
-async def remove_existing_usb_device_by_vid_pid(app_context, vid, pid, permanent = False):
+async def remove_existing_usb_device_by_vid_pid(app_context: "AppContext", vid: str, pid: str, permanent: bool = False) -> None:
     device = usb_device_by_vid_pid(app_context, vid, pid)
     if not device:
         raise RuntimeError(f"USB device {vid}:{pid} not found in the system")
     usb_info = get_usb_info(device)
     await _remove_existing_device(app_context, usb_info, permanent)
 
-async def attach_connected_usb(app_context, vms_scope = None):
+async def attach_connected_usb(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
     """Finds all USB devices that match the rules from the config and attaches them to VMs."""
 
     if vms_scope is None:
@@ -335,7 +344,7 @@ async def attach_connected_usb(app_context, vms_scope = None):
             except RuntimeError as e:
                 logger.error("Failed to attach USB device %s: %s", usb_info.friendly_name(), e)
 
-async def detach_connected_usb(app_context, vms_scope = None):
+async def detach_connected_usb(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
     """Detach all connected USB devices from VMs."""
 
     if vms_scope is None:
@@ -368,7 +377,7 @@ async def detach_connected_usb(app_context, vms_scope = None):
             else:
                 logger.warning("Device %s does not match any rules", usb_info.friendly_name())
 
-async def attach_existing_pci_device(app_context, pci_address, selected_vm):
+async def attach_existing_pci_device(app_context: "AppContext", pci_address: str, selected_vm: str | None) -> None:
     """Find PCI device by address and attach to selected VM."""
 
     pci_info = pci_info_by_address(app_context, pci_address)
@@ -376,7 +385,7 @@ async def attach_existing_pci_device(app_context, pci_address, selected_vm):
         raise RuntimeError(f"PCI device {pci_address} not found in the system")
     await _attach_existing_device(app_context, pci_info, selected_vm)
 
-async def attach_existing_pci_device_by_vid_did(app_context, vid, did, selected_vm):
+async def attach_existing_pci_device_by_vid_did(app_context: "AppContext", vid: str, did: str, selected_vm: str | None) -> bool:
     """Find PCI device by vendor ID and device ID and attach to selected VM."""
 
     pci_info = pci_info_by_vid_did(app_context, int(vid, 16), int(did, 16))
@@ -385,7 +394,7 @@ async def attach_existing_pci_device_by_vid_did(app_context, vid, did, selected_
     await _attach_existing_device(app_context, pci_info, selected_vm)
     return True
 
-async def remove_existing_pci_device(app_context, pci_address, permanent = False):
+async def remove_existing_pci_device(app_context: "AppContext", pci_address: str, permanent: bool = False) -> None:
     """Find PCI device by address and detach from VM."""
 
     pci_info = pci_info_by_address(app_context, pci_address)
@@ -393,7 +402,7 @@ async def remove_existing_pci_device(app_context, pci_address, permanent = False
         raise RuntimeError(f"PCI device {pci_address} not found in the system")
     await _remove_existing_device(app_context, pci_info, permanent)
 
-async def remove_existing_pci_device_by_vid_did(app_context, vid, did, permanent = False):
+async def remove_existing_pci_device_by_vid_did(app_context: "AppContext", vid: str, did: str, permanent: bool = False) -> bool:
     """Find PCI device by vendor ID and device ID and detach from VM."""
 
     pci_info = pci_info_by_vid_did(app_context, int(vid, 16), int(did, 16))
@@ -402,7 +411,7 @@ async def remove_existing_pci_device_by_vid_did(app_context, vid, did, permanent
     await _remove_existing_device(app_context, pci_info, permanent)
     return True
 
-async def attach_connected_pci(app_context, vms_scope = None):
+async def attach_connected_pci(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
     """Finds all PCI devices that match the rules from the config and attaches them to VMs."""
 
     if vms_scope is None:
@@ -421,7 +430,7 @@ async def attach_connected_pci(app_context, vms_scope = None):
         except RuntimeError as e:
             logger.error("Failed to attach PCI device %s: %s", pci_info.friendly_name(), e)
 
-async def detach_connected_pci(app_context, vms_scope = None):
+async def detach_connected_pci(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
     """Detach all connected PCI devices from VMs."""
 
     if vms_scope is None:
@@ -454,10 +463,10 @@ async def detach_connected_pci(app_context, vms_scope = None):
             else:
                 logger.warning("Device %s does not match any rules", pci_info.friendly_name())
 
-def get_usb_devices(app_context):
+def get_usb_devices(app_context: "AppContext") -> list[dict[str, Any]]:
     """Returns a list of all USB devices that match the rules from the config."""
 
-    dev_list = []
+    dev_list: list[dict[str, Any]] = []
     for device in app_context.udev_context.list_devices(subsystem="usb"):
         if not is_usb_device(device):
             continue
@@ -487,10 +496,10 @@ def get_usb_devices(app_context):
     return dev_list
 
 # pylint: disable = too-many-nested-blocks
-def get_pci_devices(app_context):
+def get_pci_devices(app_context: "AppContext") -> list[dict[str, Any]]:
     """Returns a list of all PCI devices that match the rules from the config."""
 
-    dev_list = []
+    dev_list: list[dict[str, Any]] = []
     for device in app_context.udev_context.list_devices(subsystem="pci"):
         dev_info = get_pci_info(device)
 
@@ -508,7 +517,8 @@ def get_pci_devices(app_context):
                 continue
 
             # Check PCI devices from IOMMU group
-            iommu_devs = []
+            iommu_devs: list[PCIInfo] = []
+            assert dev_info.address is not None, "PCI address cannot be None"
             devices = get_iommu_group_devices(dev_info.address)
             if len(devices) > 1:
                 if res.pci_iommu_skip_if_shared:

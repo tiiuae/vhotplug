@@ -1,8 +1,13 @@
 import logging
 import fcntl
 import struct
+import pyudev
+from typing import TYPE_CHECKING
 from vhotplug.qemulink import QEMULink
 from vhotplug.device import log_device
+
+if TYPE_CHECKING:
+    from vhotplug.vhotplug import AppContext
 
 # Constants from Linux kernel source code
 EVIOCGRAB = 0x40044590
@@ -10,18 +15,18 @@ EVIOCGNAME = 0x82004506
 
 logger = logging.getLogger("vhotplug")
 
-def is_input_device(device):
+def is_input_device(device: pyudev.Device) -> bool:
     """Checks udev properties to determine whether it is an input device eligible for passthrough."""
 
     if device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
-        return device.properties.get("ID_INPUT_MOUSE") == "1" or \
+        return bool(device.properties.get("ID_INPUT_MOUSE") == "1" or \
             (device.properties.get("ID_INPUT_KEYBOARD") == "1") or \
             (device.properties.get("ID_INPUT_TOUCHPAD") == "1") or \
             (device.properties.get("ID_INPUT_TOUCHSCREEN") == "1") or \
-            (device.properties.get("ID_INPUT_TABLET") == "1")
+            (device.properties.get("ID_INPUT_TABLET") == "1"))
     return False
 
-def get_evdev_name(device):
+def get_evdev_name(device: pyudev.Device) -> str | None:
     """Reads evdev friendly name by using EVIOCGNAME ioctl."""
 
     if device.device_node:
@@ -32,7 +37,7 @@ def get_evdev_name(device):
     else:
         return None
 
-async def test_grab(device):
+async def test_grab(device: pyudev.Device) -> bool:
     """Tries to grab a device to see if it's already attached to a VM."""
 
     with open(device.device_node, 'wb') as dev:
@@ -43,7 +48,7 @@ async def test_grab(device):
             return True
     return False
 
-async def attach_evdev_device(vm, device):
+async def attach_evdev_device(vm: dict[str, str], device: pyudev.Device) -> None:
     """Attaches evdev device to QEMU."""
 
     vm_name = vm.get("name")
@@ -52,11 +57,12 @@ async def attach_evdev_device(vm, device):
         logger.error("Evdev passthrough is not supported for %s with type %s", vm_name, vm_type)
         return
     vm_socket = vm.get("socket")
+    assert vm_socket is not None, "VM socket must be set"
     logger.info("Attaching evdev device to %s (%s)", vm_name, vm_socket)
     qemu = QEMULink(vm_socket)
     await qemu.add_evdev_device(device)
 
-async def attach_connected_evdev(app_context):
+async def attach_connected_evdev(app_context: "AppContext") -> None:
     """Finds all non-USB evdev devices and attaches them to the selected VM."""
 
     vm = app_context.config.vm_for_evdev_devices()

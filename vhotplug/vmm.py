@@ -2,10 +2,11 @@ import logging
 import os
 import socket
 import time
+from socket import SocketKind
 
 logger = logging.getLogger("vhotplug")
 
-def is_unix_socket_alive(socket_path, sock_type):
+def is_unix_socket_alive(socket_path: str, sock_type: SocketKind) -> bool:
     if not os.path.exists(socket_path):
         return False
     try:
@@ -17,7 +18,7 @@ def is_unix_socket_alive(socket_path, sock_type):
         logger.warning("Socket %s is not alive: %s", socket_path, e)
     return False
 
-def wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, sock_type):
+def wait_for_boot(socket_path: str, vm_boot_timeout: int, wait_after_boot: int, sock_type: SocketKind) -> bool:
     for attempt in range(1, vm_boot_timeout + 1):
         if is_unix_socket_alive(socket_path, sock_type):
             stat = os.stat(socket_path)
@@ -30,8 +31,8 @@ def wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, sock_type):
         time.sleep(1)
     return False
 
-def wait_for_boot_crosvm(socket_path, vm_boot_timeout, wait_after_boot):
+def wait_for_boot_crosvm(socket_path: str, vm_boot_timeout: int, wait_after_boot: int) -> bool:
     return wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_SEQPACKET)
 
-def wait_for_boot_qemu(socket_path, vm_boot_timeout, wait_after_boot):
+def wait_for_boot_qemu(socket_path: str, vm_boot_timeout: int, wait_after_boot: int) -> bool:
     return wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_STREAM)

@@ -1,24 +1,25 @@
 import os
 import logging
+from typing import Any
 from inotify_simple import INotify, flags
 
 logger = logging.getLogger("vhotplug")
 
 class FileWatcher:
-    def __init__(self):
+    def __init__(self) -> None:
         self.inotify = INotify()
-        self.watch_descriptors = {}
+        self.watch_descriptors: dict[int, dict[str, Any]] = {}
 
-    def directory_monitored(self, directory_name):
+    def directory_monitored(self, directory_name: str) -> bool:
         return any(desc['directory'] == directory_name for desc in self.watch_descriptors.values())
 
-    def get_directory_wd(self, directory_name):
+    def get_directory_wd(self, directory_name: str) -> int | None:
         for wd, desc in self.watch_descriptors.items():
             if desc['directory'] == directory_name:
                 return wd
         return None
 
-    def add_file(self, file_path):
+    def add_file(self, file_path: str) -> None:
         directory = os.path.dirname(file_path)
         filename = os.path.basename(file_path)
         logger.info("Watching for %s in %s", filename, directory)
@@ -37,9 +38,9 @@ class FileWatcher:
         else:
             self.watch_descriptors[wd]['files'].add(filename)
 
-    def detect_restart(self):
+    def detect_restart(self) -> tuple[bool, list[str]]:
         vm_restart_detected = False
-        vms_restarted = []
+        vms_restarted: list[str] = []
         try:
             events = self.inotify.read(timeout=0)
             for event in events:

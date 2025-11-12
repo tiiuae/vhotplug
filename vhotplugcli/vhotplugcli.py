@@ -8,7 +8,7 @@ from vhotplugcli.apiclient import APIClient
 logger = logging.getLogger(__name__)
 
 # pylint: disable=too-many-positional-arguments
-def usb_attach(client: APIClient, devnode, bus, port, vid, pid, vm):
+def usb_attach(client: APIClient, devnode: str | None, bus: int | None, port: int | None, vid: str | None, pid: str | None, vm: str) -> None:
     if not devnode and not (bus and port) and not (vid and pid):
         raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
 
@@ -18,13 +18,14 @@ def usb_attach(client: APIClient, devnode, bus, port, vid, pid, vm):
     elif bus and port:
         res = client.usb_attach_by_bus_port(bus, port, vm)
     else:
+        assert vid is not None and pid is not None, "vid and pid must be provided"
         res = client.usb_attach_by_vid_pid(vid, pid, vm)
 
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to attach USB: {res.get('error')}")
     logger.info("Successfully attached")
 
-def usb_detach(client: APIClient, devnode, bus, port, vid, pid):
+def usb_detach(client: APIClient, devnode: str | None, bus: int | None, port: int | None, vid: str | None, pid: str | None) -> None:
     if not devnode and not (bus and port) and not (vid and pid):
         raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
 
@@ -34,13 +35,14 @@ def usb_detach(client: APIClient, devnode, bus, port, vid, pid):
     elif bus and port:
         res = client.usb_detach_by_bus_port(bus, port)
     else:
+        assert vid is not None and pid is not None, "vid and pid must be provided"
         res = client.usb_detach_by_vid_pid(vid, pid)
 
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to detach USB: {res.get('error')}")
     logger.info("Successfully detached")
 
-def usb_list(client: APIClient):
+def usb_list(client: APIClient) -> None:
     client.connect()
     res = client.usb_list()
     if res.get("result") == "failed":
@@ -52,25 +54,25 @@ def usb_list(client: APIClient):
             print(f"  {key:<16}: {value}")
         print()
 
-def usb_suspend(client: APIClient, vm):
+def usb_suspend(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.usb_suspend(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to suspend USB: {res.get('error')}")
     logger.info("Successfully suspended")
 
-def usb_resume(client: APIClient, vm):
+def usb_resume(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.usb_resume(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
     logger.info("Successfully resumed")
 
-def listen_for_notifications(client: APIClient):
+def listen_for_notifications(client: APIClient) -> None:
     logger.info("Listening for notifications")
     client.recv_notifications(callback=logger.info)
 
-def pci_attach(client: APIClient, address, vid, did, vm):
+def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str | None, vm: str) -> None:
     if not address and not (vid and did):
         raise RuntimeError("You must specify either --address or --vid and --did")
 
@@ -78,13 +80,14 @@ def pci_attach(client: APIClient, address, vid, did, vm):
     if address:
         res = client.pci_attach(address, vm)
     else:
+        assert vid is not None and did is not None, "vid and did must be provided"
         res = client.pci_attach_by_vid_did(vid, did, vm)
 
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to attach PCI: {res.get('error')}")
     logger.info("Successfully attached")
 
-def pci_detach(client: APIClient, address, vid, did):
+def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str | None) -> None:
     if not address and not (vid and did):
         raise RuntimeError("You must specify either --address or --vid and --did")
 
@@ -92,13 +95,14 @@ def pci_detach(client: APIClient, address, vid, did):
     if address:
         res = client.pci_detach(address)
     else:
+        assert vid is not None and did is not None, "vid and did must be provided"
         res = client.pci_detach_by_vid_did(vid, did)
 
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to detach PCI: {res.get('error')}")
     logger.info("Successfully detached")
 
-def pci_list(client: APIClient):
+def pci_list(client: APIClient) -> None:
     client.connect()
     res = client.pci_list()
     if res.get("result") == "failed":
@@ -110,21 +114,21 @@ def pci_list(client: APIClient):
             print(f"  {key:<16}: {value}")
         print()
 
-def pci_suspend(client: APIClient, vm):
+def pci_suspend(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.pci_suspend(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to suspend PCI: {res.get('error')}")
     logger.info("Successfully suspended")
 
-def pci_resume(client: APIClient, vm):
+def pci_resume(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.pci_resume(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to resume PCI: {res.get('error')}")
     logger.info("Successfully resumed")
 
-def running_in_vm():
+def running_in_vm() -> bool:
     try:
         with open("/dev/vsock", "rb") as fd:
             buf = bytearray(4)
@@ -136,7 +140,7 @@ def running_in_vm():
         return False
 
 # pylint: disable=too-many-locals,too-many-statements
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
     parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages",)

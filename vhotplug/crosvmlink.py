@@ -2,6 +2,8 @@ import logging
 import asyncio
 import subprocess
 from vhotplug.vmm import wait_for_boot_crosvm
+from vhotplug.usb import USBInfo
+from vhotplug.pci import PCIInfo
 
 logger = logging.getLogger("vhotplug")
 
@@ -11,7 +13,7 @@ class CrosvmLink:
     vm_wait_after_boot = 3
     vm_boot_timeout = 10
 
-    def __init__(self, socket_path, crosvm_bin):
+    def __init__(self, socket_path: str, crosvm_bin: str | None) -> None:
         self.socket_path = socket_path
         if crosvm_bin:
             self.crosvm_bin = crosvm_bin
@@ -19,8 +21,9 @@ class CrosvmLink:
             self.crosvm_bin = "crosvm"
 
     # pylint: disable = too-many-branches
-    async def add_usb_device(self, usb_info):
+    async def add_usb_device(self, usb_info: USBInfo) -> None:
         dev_node = usb_info.device_node
+        assert dev_node is not None, "Device node must be set"
 
         # Crosvm requires the kernel to be booted before USB devices can be passed through
         if not wait_for_boot_crosvm(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot):
@@ -57,7 +60,7 @@ class CrosvmLink:
                         logger.info("No available port, removing all devices")
                         devices = await self.usb_list()
                         for index, _, _ in devices:
-                            await self.remove_usb_device(index)
+                            await self.remove_usb_device_by_id(index)
                     else:
                         logger.warning("Unexpected result: %s", r[0])
                         logger.warning("Out: %s", result.stdout)
@@ -74,7 +77,7 @@ class CrosvmLink:
         logger.error("Failed to add USB device %s after %s attempts", dev_node, i)
         raise RuntimeError("Timeout")
 
-    async def remove_usb_device_by_id(self, dev_id):
+    async def remove_usb_device_by_id(self, dev_id: int) -> None:
         try:
             logger.info("Detaching USB device %s from %s", dev_id, self.socket_path)
             result = subprocess.run([self.crosvm_bin, "usb", "detach", str(dev_id), self.socket_path], capture_output=True, text=True, check=False)
@@ -95,8 +98,8 @@ class CrosvmLink:
             logger.error("Failed to detach USB device: %s", e)
             raise RuntimeError(e) from None
 
-    async def usb_list(self):
-        devices = []
+    async def usb_list(self) -> list[tuple[int, str, str]]:
+        devices: list[tuple[int, str, str]] = []
         try:
             logger.debug("Getting a list of USB devices from %s", self.socket_path)
             result = subprocess.run([self.crosvm_bin, "usb", "list", self.socket_path], capture_output=True, text=True, check=False)
@@ -123,15 +126,15 @@ class CrosvmLink:
             logger.error("Failed to list USB devices: %s", e)
         return devices
 
-    async def remove_usb_device(self, usb_info):
+    async def remove_usb_device(self, usb_info: USBInfo) -> None:
         devices = await self.usb_list()
         for index, crosvm_vid, crosvm_pid in devices:
             if usb_info.vid == crosvm_vid and usb_info.pid == crosvm_pid:
                 logger.debug("Removing %s from %s", index, self.socket_path)
                 await self.remove_usb_device_by_id(index)
 
-    async def add_pci_device(self, _pci_info):
+    async def add_pci_device(self, _pci_info: PCIInfo) -> None:
         raise RuntimeError("Not implemented")
 
-    async def remove_pci_device(self, _pci_info):
+    async def remove_pci_device(self, _pci_info: PCIInfo) -> None:
         raise RuntimeError("Not implemented")

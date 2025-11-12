@@ -1,8 +1,12 @@
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Any, TYPE_CHECKING
 import logging
 import time
 import os
+import pyudev
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from vhotplug.vhotplug import AppContext
 
 logger = logging.getLogger("vhotplug")
 
@@ -21,7 +25,7 @@ class PCIInfo(NamedTuple):
     pci_subsystem_vendor_id: Optional[str] = None
     pci_subsystem_id: Optional[str] = None
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.address,
             "driver": self.driver,
@@ -38,7 +42,7 @@ class PCIInfo(NamedTuple):
             "pci_subsystem_id": self.pci_subsystem_id,
         }
 
-    def friendly_name(self):
+    def friendly_name(self) -> str:
         return f"{self.vid}:{self.did} ({self.vendor_name} {self.device_name})"
 
     def runtime_id(self) -> str:
@@ -47,10 +51,10 @@ class PCIInfo(NamedTuple):
     def persistent_id(self) -> str:
         return f"pci-{self.address}"
 
-    def is_boot_device(self, _context):
+    def is_boot_device(self, _context: pyudev.Context) -> bool:
         return False
 
-def get_pci_info(device) -> PCIInfo:
+def get_pci_info(device: pyudev.Device) -> PCIInfo:
     address = device.sys_name
     driver = device.driver
     pci_id = device.properties.get("PCI_ID")
@@ -68,14 +72,14 @@ def get_pci_info(device) -> PCIInfo:
 
     return PCIInfo(address, driver, vendor_id, device_id, vid, did, vendor_name, device_name, pci_class, pci_subclass, pci_prog_if, pci_subsystem_vendor_id, pci_subsystem_id)
 
-def pci_info_by_address(app_context, address):
+def pci_info_by_address(app_context: "AppContext", address: str) -> PCIInfo | None:
     for device in app_context.udev_context.list_devices(subsystem='pci'):
         pci_info = get_pci_info(device)
         if pci_info.address == address:
             return pci_info
     return None
 
-def pci_info_by_vid_did(app_context, vid, did):
+def pci_info_by_vid_did(app_context: "AppContext", vid: int, did: int) -> PCIInfo | None:
     for device in app_context.udev_context.list_devices(subsystem='pci'):
         pci_info = get_pci_info(device)
         vid_match = pci_info.vendor_id and vid and pci_info.vendor_id == vid
@@ -84,7 +88,7 @@ def pci_info_by_vid_did(app_context, vid, did):
             return pci_info
     return None
 
-def _get_pci_driver(pci_address):
+def _get_pci_driver(pci_address: str) -> str | None:
     """Returns PCI device driver name."""
 
     path = f"/sys/bus/pci/devices/{pci_address}/driver"
@@ -92,7 +96,7 @@ def _get_pci_driver(pci_address):
         return os.path.basename(os.readlink(path))
     return None
 
-def _bind_vfio_pci(pci_address):
+def _bind_vfio_pci(pci_address: str) -> None:
     """Checks the driver assigned for the device and changes it to vfio-pci."""
 
     device_path = f"/sys/bus/pci/devices/{pci_address}"
@@ -127,7 +131,7 @@ def _bind_vfio_pci(pci_address):
 
     logger.debug("Successfully bound vfio-pci driver for %s", pci_address)
 
-def get_iommu_group_devices(pci_address):
+def get_iommu_group_devices(pci_address: str) -> list[str]:
     device_path = Path(f"/sys/bus/pci/devices/{pci_address}")
     if not device_path.exists():
         logger.error("Device path %s does not exist", device_path)
@@ -151,11 +155,12 @@ def get_iommu_group_devices(pci_address):
             break
     return []
 
-def setup_vfio(pci_info):
+def setup_vfio(pci_info: PCIInfo) -> None:
     """Checks PCI device IOMMU group and sets vfio-pci driver for all devices."""
 
     logger.debug("Setting up vfio for %s", pci_info.address)
     try:
+        assert pci_info.address is not None, "PCI address cannot be None"
         devices = get_iommu_group_devices(pci_info.address)
         # List all devices in the IOMMU group and setup vfio-pci driver for them:
         logger.debug("Devices in the group:")
@@ -166,6 +171,6 @@ def setup_vfio(pci_info):
     except OSError as e:
         logger.error("Failed to setup VFIO for %s: %s", pci_info.address, e)
 
-def check_vfio():
+def check_vfio() -> None:
     if not os.path.exists("/sys/module/vfio_pci"):
         logger.warning("vfio-pci is not loaded")

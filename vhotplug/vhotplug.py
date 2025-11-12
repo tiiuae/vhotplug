@@ -17,13 +17,13 @@ logger = logging.getLogger("vhotplug")
 
 @dataclass
 class AppContext:
-    config: object
-    udev_monitor: object
-    udev_context: object
-    dev_state: object
-    api_server: Optional[object] = None
+    config: Config
+    udev_monitor: pyudev.Monitor
+    udev_context: pyudev.Context
+    dev_state: DeviceState
+    api_server: Optional[APIServer] = None
 
-async def device_event(app_context, device):
+async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
     if device.action == 'add':
         logger.debug("Device plugged: %s", device.sys_name)
         logger.debug("Subsystem: %s, path: %s", device.subsystem, device.device_path)
@@ -64,7 +64,7 @@ async def device_event(app_context, device):
         if device.subsystem == 'power_supply':
             logger.info("Power supply device %s changed, this may indicate a system resume", device.sys_name)
 
-async def monitor_loop(app_context, file_watcher, attach_connected):
+async def monitor_loop(app_context: AppContext, file_watcher: FileWatcher, attach_connected: bool) -> None:
     while True:
         device = await asyncio.to_thread(app_context.udev_monitor.poll, 1)
         if device:
@@ -73,11 +73,13 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
         # Detect if any VMs restarted
         vm_restart_detected, sockets_restarted = file_watcher.detect_restart()
         if vm_restart_detected and attach_connected:
-            vms_restarted = []
+            vms_restarted: list[str] = []
             for sock in sockets_restarted:
                 vm = app_context.config.get_vm_by_socket(sock)
                 if vm:
-                    vms_restarted.append(vm.get("name"))
+                    vm_name = vm.get("name")
+                    if vm_name:
+                        vms_restarted.append(vm_name)
 
             # Check non-USB evdev devices when the target VM is restarted
             vm = app_context.config.vm_for_evdev_devices()
@@ -88,7 +90,7 @@ async def monitor_loop(app_context, file_watcher, attach_connected):
             # Check USB devices for restarted VMs
             await attach_connected_usb(app_context, vms_restarted)
 
-async def async_main():
+async def async_main() -> None:
     parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
     parser.add_argument("-c", "--config", type=str, required=True, help="Path to the configuration file")
     parser.add_argument("-a", "--attach-connected", default=False, action=argparse.BooleanOptionalAction, help="Attach connected devices on startup")
@@ -138,7 +140,7 @@ async def async_main():
     logger.info("Waiting for new devices")
     await monitor_loop(app_context, file_watcher, args.attach_connected)
 
-def main():
+def main() -> None:
     try:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(async_main())
