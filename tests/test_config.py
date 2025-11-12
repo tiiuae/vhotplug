@@ -1,16 +1,16 @@
 from vhotplug.config import Config
 from vhotplug.usb import USBInfo
 
-def test_input():
+def test_input() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
             interfaces=":030101:030102:030000:"
         )
     )
-    assert res.target_vm == "vm1" and res.allowed_vms is None
+    assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
 
-def test_input_ignore_vid_pid():
+def test_input_ignore_vid_pid() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -23,16 +23,16 @@ def test_input_ignore_vid_pid():
     )
     assert res is None
 
-def test_ethernet_product_name():
+def test_ethernet_product_name() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
             product_name="Some ethernet device"
         )
     )
-    assert res.target_vm == "vm1" and res.allowed_vms is None
+    assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
 
-def test_ethernet_ignore_vid_pid():
+def test_ethernet_ignore_vid_pid() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -45,7 +45,7 @@ def test_ethernet_ignore_vid_pid():
     )
     assert res is None
 
-def test_disabled():
+def test_disabled() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -55,25 +55,25 @@ def test_disabled():
     )
     assert res is None
 
-def test_audio():
+def test_audio() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
             interfaces=":010100:"
         )
     )
-    assert res.target_vm == "vm1" and res.allowed_vms is None
+    assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
 
-def test_audio_and_video():
+def test_audio_and_video() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
             interfaces=":010100:0e0100:"
         )
     )
-    assert res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
+    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
 
-def test_webcam():
+def test_webcam() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -84,9 +84,9 @@ def test_webcam():
             interfaces=":0e0100:0e0200:0e0101:0e0201:fe0101:"
         )
     )
-    assert res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
+    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
 
-def test_ssd():
+def test_ssd() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -99,7 +99,7 @@ def test_ssd():
     )
     assert res is None
 
-def test_hub():
+def test_hub() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -112,7 +112,7 @@ def test_hub():
     )
     assert res is None
 
-def test_bluetooth():
+def test_bluetooth() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -126,9 +126,9 @@ def test_bluetooth():
             interfaces=":e00101:",
         )
     )
-    assert res.target_vm == "vm2" and res.allowed_vms is None
+    assert res is not None and res.target_vm == "vm2" and res.allowed_vms is None
 
-def test_bus_port():
+def test_bus_port() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(
@@ -136,9 +136,9 @@ def test_bus_port():
             ports=[22, 33, 44]
         )
     )
-    assert res.target_vm == "vm2" and res.allowed_vms is None
+    assert res is not None and res.target_vm == "vm2" and res.allowed_vms is None
 
-def test_wrong_bus_port():
+def test_wrong_bus_port() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
         USBInfo(

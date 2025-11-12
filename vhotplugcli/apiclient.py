@@ -2,21 +2,23 @@ import socket
 import json
 import logging
 import time
+from typing import Any, Callable
+from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
 # pylint: disable=too-many-public-methods
 class APIClient:
     # pylint: disable=too-many-positional-arguments
-    def __init__(self, host="127.0.0.1", port=2000, cid=2, transport="vsock", path="/var/lib/vhotplug/vhotplug.sock"):
+    def __init__(self, host: str = "127.0.0.1", port: int = 2000, cid: int = 2, transport: str = "vsock", path: str = "/var/lib/vhotplug/vhotplug.sock") -> None:
         self.transport = transport
         self.host = host
         self.port = port
         self.cid = cid
         self.path = path
-        self.sock = None
+        self.sock: socket.socket | None = None
 
-    def clone(self):
+    def clone(self) -> "APIClient":
         return APIClient(
             transport=self.transport,
             host=self.host,
@@ -25,7 +27,7 @@ class APIClient:
             path=self.path,
         )
 
-    def connect(self):
+    def connect(self) -> None:
         try:
             if self.transport == "vsock":
                 if not self.cid or not self.port:
@@ -55,16 +57,18 @@ class APIClient:
             raise RuntimeError(f"Failed to connect: {str(e)}") from e
         logger.debug("Connected")
 
-    def send(self, msg):
+    def send(self, msg: Mapping[str, Any]) -> dict[str, Any]:
         data = json.dumps(msg) + "\n"
         logger.debug("Sending: %s", data)
+        assert self.sock is not None, "Socket is not connected"
         self.sock.sendall(data.encode("utf-8"))
         res = self.recv()
         logger.debug("Received: %s", res)
         return res
 
-    def recv(self):
+    def recv(self) -> dict[str, Any]:
         buffer = ""
+        assert self.sock is not None, "Socket is not connected"
         while True:
             data = self.sock.recv(4096)
             if not data:
@@ -73,70 +77,70 @@ class APIClient:
             while "\n" in buffer:
                 msg, buffer = buffer.split("\n", 1)
                 try:
-                    return json.loads(msg)
+                    result: dict[str, Any] = json.loads(msg)
+                    return result
                 except ValueError:
                     logger.error("Invalid JSON in API response: %s", msg)
-        return None
 
-    def close(self):
+    def close(self) -> None:
         if self.sock:
             self.sock.close()
             self.sock = None
 
-    def enable_notifications(self):
+    def enable_notifications(self) -> None:
         response = self.send({"action": "enable_notifications"})
         if response.get("result") != "ok":
             logger.error("Failed to enable notifications: %s", response)
 
-    def usb_list(self):
+    def usb_list(self) -> dict[str, Any]:
         return self.send({"action": "usb_list"})
 
-    def usb_attach(self, device_node, vm):
+    def usb_attach(self, device_node: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_attach", "device_node": device_node, "vm": vm})
 
-    def usb_attach_by_bus_port(self, bus, port, vm):
+    def usb_attach_by_bus_port(self, bus: int, port: int, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_attach", "bus": bus, "port": port, "vm": vm})
 
-    def usb_attach_by_vid_pid(self, vid, pid, vm):
+    def usb_attach_by_vid_pid(self, vid: str, pid: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_attach", "vid": vid, "pid": pid, "vm": vm})
 
-    def usb_detach(self, device_node):
+    def usb_detach(self, device_node: str) -> dict[str, Any]:
         return self.send({"action": "usb_detach", "device_node": device_node})
 
-    def usb_detach_by_bus_port(self, bus, port):
+    def usb_detach_by_bus_port(self, bus: int, port: int) -> dict[str, Any]:
         return self.send({"action": "usb_detach", "bus": bus, "port": port})
 
-    def usb_detach_by_vid_pid(self, vid, pid):
+    def usb_detach_by_vid_pid(self, vid: str, pid: str) -> dict[str, Any]:
         return self.send({"action": "usb_detach", "vid": vid, "pid": pid})
 
-    def usb_suspend(self, vm):
+    def usb_suspend(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_suspend", "vm": vm})
 
-    def usb_resume(self, vm):
+    def usb_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_resume", "vm": vm})
 
-    def pci_list(self):
+    def pci_list(self) -> dict[str, Any]:
         return self.send({"action": "pci_list"})
 
-    def pci_attach(self, address, vm):
+    def pci_attach(self, address: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_attach", "address": address, "vm": vm})
 
-    def pci_attach_by_vid_did(self, vid, did, vm):
+    def pci_attach_by_vid_did(self, vid: str, did: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_attach", "vid": vid, "did": did, "vm": vm})
 
-    def pci_detach(self, address):
+    def pci_detach(self, address: str) -> dict[str, Any]:
         return self.send({"action": "pci_detach", "address": address})
 
-    def pci_detach_by_vid_did(self, vid, did):
+    def pci_detach_by_vid_did(self, vid: str, did: str) -> dict[str, Any]:
         return self.send({"action": "pci_detach", "vid": vid, "did": did})
 
-    def pci_suspend(self, vm):
+    def pci_suspend(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_suspend", "vm": vm})
 
-    def pci_resume(self, vm):
+    def pci_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_resume", "vm": vm})
 
-    def recv_notifications(self, callback, reconnect_delay=3):
+    def recv_notifications(self, callback: Callable[[dict[str, Any]], None], reconnect_delay: int = 3) -> None:
         while True:
             try:
                 client = self.clone()
@@ -144,6 +148,7 @@ class APIClient:
                 client.enable_notifications()
 
                 buffer = ""
+                assert client.sock is not None, "Socket is not connected"
                 while True:
                     data = client.sock.recv(4096)
                     if not data:

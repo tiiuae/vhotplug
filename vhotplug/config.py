@@ -2,8 +2,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Any
 from vhotplug.usb import parse_usb_interfaces, USBInfo
+from vhotplug.pci import PCIInfo
 
 logger = logging.getLogger("vhotplug")
 
@@ -16,36 +17,40 @@ class PassthroughInfo:
     pci_iommu_skip_if_shared: bool = False
 
 class Config:
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         self.path = path
         self.config = self.load()
 
-    def load(self):
+    def load(self) -> dict[str, Any]:
         with open(self.path, "r", encoding="utf-8") as file:
-            return json.load(file)
+            result: dict[str, Any] = json.load(file)
+            return result
 
-    def _disabled(self, node, default=False):
+    def _disabled(self, node: dict[str, Any], default: bool = False) -> bool:
         if "disable" in node:
             return bool(node["disable"])
         if "enable" in node:
             return not bool(node["enable"])
         return default
 
-    def _enabled(self, node, default=True):
+    def _enabled(self, node: dict[str, Any], default: bool = True) -> bool:
         if "enable" in node:
             return bool(node["enable"])
         if "disable" in node:
             return not bool(node["disable"])
         return default
 
-    def _hex_to_int(self, s):
+    def _hex_to_int(self, s: str | None) -> int | None:
         try:
             return int(s, 16) if s else None
         except (ValueError, TypeError):
             return None
 
     # pylint: disable = too-many-locals, too-many-return-statements
-    def _match_usb(self, usb_info, usb_rule):
+    def _match_usb(self, dev_info: USBInfo | PCIInfo, usb_rule: dict[str, Any]) -> bool:
+        if not isinstance(dev_info, USBInfo):
+            return False
+        usb_info = dev_info
         if self._disabled(usb_rule):
             return False
 
@@ -114,7 +119,10 @@ class Config:
 
         return False
 
-    def _match_pci(self, pci_info, rule):
+    def _match_pci(self, dev_info: USBInfo | PCIInfo, rule: dict[str, Any]) -> bool:
+        if not isinstance(dev_info, PCIInfo):
+            return False
+        pci_info = dev_info
         if self._disabled(rule):
             return False
 
@@ -152,7 +160,7 @@ class Config:
 
         return False
 
-    def vm_for_device(self, dev_info):
+    def vm_for_device(self, dev_info: USBInfo | PCIInfo) -> PassthroughInfo | None:
         try:
             dev_name = dev_info.friendly_name()
             logger.debug("Searching for a VM for %s", dev_name)
@@ -196,7 +204,7 @@ class Config:
             logger.error("Failed to find VM for device in the configuration file: %s", e)
         return None
 
-    def vm_for_evdev_devices(self):
+    def vm_for_evdev_devices(self) -> dict[str, Any] | None:
         try:
             evdev = self.config.get("evdevPassthrough")
             if evdev and self._disabled(evdev) is not True:
@@ -207,26 +215,29 @@ class Config:
             logger.error("Failed to find VM for evdev device in the configuration file: %s", e)
         return None
 
-    def get_all_vms(self):
-        return self.config.get("vms", [])
+    def get_all_vms(self) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = self.config.get("vms", [])
+        return result
 
-    def get_vm(self, vm_name):
+    def get_vm(self, vm_name: str) -> dict[str, Any] | None:
         for vm in self.config.get("vms", []):
             if vm.get("name") == vm_name:
-                return vm
+                return dict(vm)
         return None
 
-    def get_vm_by_socket(self, socket):
+    def get_vm_by_socket(self, socket: str) -> dict[str, Any] | None:
         for vm in self.config.get("vms", []):
             if vm.get("socket") == socket:
-                return vm
+                return dict(vm)
         return None
 
-    def api_enabled(self):
-        return self._enabled(self.config.get("general", {}).get("api", {}))
+    def api_enabled(self) -> bool:
+        return bool(self._enabled(self.config.get("general", {}).get("api", {})))
 
-    def persistency_enabled(self):
-        return self.config.get("general", {}).get("persistency", True)
+    def persistency_enabled(self) -> bool:
+        result: bool = self.config.get("general", {}).get("persistency", True)
+        return result
 
-    def state_path(self):
-        return self.config.get("general", {}).get("statePath", "/var/lib/vhotplug/vhotplug.state")
+    def state_path(self) -> str:
+        result: str = self.config.get("general", {}).get("statePath", "/var/lib/vhotplug/vhotplug.state")
+        return result
