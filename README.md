@@ -143,6 +143,100 @@ options:
 }
 ```
 
+# Getting Started with Nix
+
+This project uses Nix for reproducible builds and development environments.
+
+## Building
+
+Build the package:
+
+```bash
+nix build
+```
+
+## Running
+
+Run vhotplug directly without installing:
+
+```bash
+nix run . -- --config ./config.json --debug
+```
+
+## Development
+
+Enter the development shell with all dependencies:
+
+```bash
+nix develop
+```
+
+Inside the dev shell, you have access to:
+
+- `vhotplug` - The main application
+- `pytest` - Run tests
+- `mypy` - Type checking
+- `pylint` - Code linting
+- `treefmt` - Format all code (Nix, Python, JSON, Markdown)
+
+Format and check code:
+
+```bash
+nix fmt
+```
+
+Run tests:
+
+```bash
+nix build .#checks.x86_64-linux.vhotplug-service
+```
+
+## NixOS Module
+
+Use vhotplug as a NixOS module in your configuration:
+
+```nix
+{
+  inputs.vhotplug.url = "github:tiiuae/vhotplug";
+
+  outputs = { nixpkgs, vhotplug, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        vhotplug.nixosModules.default
+        {
+          services.vhotplug = {
+            enable = true;
+            attachConnected = true;
+            debug = false;
+            config = {
+              usbPassthrough = [
+                {
+                  description = "USB devices for VM";
+                  targetVm = "myvm";
+                  allow = [
+                    {
+                      interfaceClass = 3;
+                      description = "HID devices";
+                    }
+                  ];
+                }
+              ];
+              vms = [
+                {
+                  name = "myvm";
+                  type = "qemu";
+                  socket = "/run/qemu/vm.sock";
+                }
+              ];
+            };
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
 # License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
