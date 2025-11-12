@@ -20,6 +20,7 @@ The same parameters can be used in allow and deny rule sets. Only the fields pre
 # USB Devices
 
 The following parameters can be used for USB passthrough:
+
 - vendorId — USB vendor ID (e.g., "0bda")
 - productId — USB product ID (e.g., "4852")
 - vendorName — Vendor name (from udev or USB database, supports regular expressions)
@@ -39,6 +40,7 @@ In practice, matching by interfaces is often more reliable than using deviceClas
 # PCI Devices
 
 The following parameters can be used for PCI passthrough:
+
 - address — PCI address (e.g. "0000:00:14.3")
 - vendorId — PCI vendor ID (e.g., "8086")
 - deviceId — PCI device ID (e.g., "a7a1")
@@ -75,69 +77,69 @@ options:
 
 ```json
 {
-    "usbPassthrough": [
+  "usbPassthrough": [
+    {
+      "description": "Devices for VM1",
+      "targetVm": "vm1",
+      "allow": [
         {
-            "description": "Devices for VM1",
-            "targetVm": "vm1",
-            "allow": [
-                {
-                    "interfaceClass": 3,
-                    "interfaceProtocol": 2,
-                    "description": "HID Mouse",
-                },
-                {
-                    "productName": ".*ethernet.*",
-                    "description": "Ethernet devices",
-                },
-                {
-                    "vendorId": "067b",
-                    "productId": "23a3",
-                    "description": "Prolific USB-to-Serial Bridge",
-                    "disable": true
-                }
-            ],
-            "deny": [
-                {
-                    "vendorId": "046d",
-                    "productId": "c52b",
-                    "description": "Logitech, Inc. Unifying Receiver"
-                },
-                {
-                    "vendorId": "0b95",
-                    "productId": "1790",
-                    "description": "AX88179 Gigabit Ethernet"
-                }
-            ]
-        }
-    ],
-     "pciPassthrough": [
+          "interfaceClass": 3,
+          "interfaceProtocol": 2,
+          "description": "HID Mouse"
+        },
         {
-            "description": "Devices for VM1",
-            "targetVm": "vm1",
-            "allow": [
-                {
-                    "address": "0000:00:14.3",
-                    "description": "Intel WiFi card"
-                },
-                {
-                    "vendorId": "8086",
-                    "deviceId": "a7a1",
-                    "description": "Intel Iris GPU"
-                }
-            ]
-        }
-    ],
-    "evdevPassthrough": {
-        "disable": true,
-        "targetVm": "vm1"
-    },
-    "vms": [
+          "productName": ".*ethernet.*",
+          "description": "Ethernet devices"
+        },
         {
-            "name": "vm1",
-            "type": "qemu",
-            "socket": "/tmp/qmp-socket1"
+          "vendorId": "067b",
+          "productId": "23a3",
+          "description": "Prolific USB-to-Serial Bridge",
+          "disable": true
         }
-    ]
+      ],
+      "deny": [
+        {
+          "vendorId": "046d",
+          "productId": "c52b",
+          "description": "Logitech, Inc. Unifying Receiver"
+        },
+        {
+          "vendorId": "0b95",
+          "productId": "1790",
+          "description": "AX88179 Gigabit Ethernet"
+        }
+      ]
+    }
+  ],
+  "pciPassthrough": [
+    {
+      "description": "Devices for VM1",
+      "targetVm": "vm1",
+      "allow": [
+        {
+          "address": "0000:00:14.3",
+          "description": "Intel WiFi card"
+        },
+        {
+          "vendorId": "8086",
+          "deviceId": "a7a1",
+          "description": "Intel Iris GPU"
+        }
+      ]
+    }
+  ],
+  "evdevPassthrough": {
+    "disable": true,
+    "targetVm": "vm1"
+  },
+  "vms": [
+    {
+      "name": "vm1",
+      "type": "qemu",
+      "socket": "/tmp/qmp-socket1"
+    }
+  ]
 }
 ```
 

@@ -1,119 +1,116 @@
 {
-    "usbPassthrough": [
+  "usbPassthrough": [
+    {
+      "description": "Devices for VM1",
+      "targetVm": "vm1",
+      "allow": [
         {
-            "description": "Devices for VM1",
-            "targetVm": "vm1",
-            "allow": [
-                {
-                    "interfaceClass": 3,
-                    "interfaceProtocol": 2,
-                    "description": "HID Mouse"
-                },
-                {
-                    "productName": ".*ethernet.*",
-                    "description": "Ethernet devices"
-                },
-                {
-                    "vendorId": "067b",
-                    "productId": "23a3",
-                    "description": "Prolific USB-to-Serial Bridge",
-                    "disable": true
-                },
-                {
-                    "interfaceClass": 1,
-                    "description": "Audio"
-                }
-            ],
-            "deny": [
-                {
-                    "vendorId": "046d",
-                    "productId": "c52b",
-                    "description": "Logitech, Inc. Unifying Receiver"
-                },
-                {
-                    "vendorId": "0b95",
-                    "productId": "1790",
-                    "description": "AX88179 Gigabit Ethernet"
-                },
-                {
-                    "interfaceClass": 14,
-                    "description": "Video (USB Webcams)"
-                }
-            ]
+          "interfaceClass": 3,
+          "interfaceProtocol": 2,
+          "description": "HID Mouse"
         },
         {
-            "description": "Devices for VM2",
-            "targetVm": "vm2",
-            "allow": [
-                {
-                    "deviceClass": 224,
-                    "description": "Wireless Controller"
-                },
-                {
-                    "bus": 11,
-                    "port": 22,
-                    "description": "All devices on port 22 bus 11"
-                }
-            ]
+          "productName": ".*ethernet.*",
+          "description": "Ethernet devices"
         },
         {
-            "description": "Devices for Multiple VMs",
-            "allowedVms": [
-                "vm1",
-                "vm2"
-            ],
-            "allow": [
-                {
-                    "interfaceClass": 14,
-                    "description": "Video (USB Webcams)"
-                },
-                {
-                    "vendorId": "1050",
-                    "productId": "0407",
-                    "description": "Yubikey"
-                }
-            ]
-        }
-    ],
-    "pciPassthrough": [
+          "vendorId": "067b",
+          "productId": "23a3",
+          "description": "Prolific USB-to-Serial Bridge",
+          "disable": true
+        },
         {
-            "description": "Devices for VM1",
-            "targetVm": "vm1",
-            "allow": [
-                {
-                    "address": "0000:00:14.3",
-                    "description": "Intel WiFi card"
-                },
-                {
-                    "vendorId": "8086",
-                    "deviceId": "a7a1",
-                    "description": "Intel Iris GPU"
-                }
-            ]
+          "interfaceClass": 1,
+          "description": "Audio"
         }
-    ],
-    "evdevPassthrough": {
-        "targetVm": "vm1"
+      ],
+      "deny": [
+        {
+          "vendorId": "046d",
+          "productId": "c52b",
+          "description": "Logitech, Inc. Unifying Receiver"
+        },
+        {
+          "vendorId": "0b95",
+          "productId": "1790",
+          "description": "AX88179 Gigabit Ethernet"
+        },
+        {
+          "interfaceClass": 14,
+          "description": "Video (USB Webcams)"
+        }
+      ]
     },
-    "vms": [
+    {
+      "description": "Devices for VM2",
+      "targetVm": "vm2",
+      "allow": [
         {
-            "name": "vm1",
-            "type": "qemu",
-            "socket": "/tmp/qmp-socket1"
+          "deviceClass": 224,
+          "description": "Wireless Controller"
         },
         {
-            "name": "vm2",
-            "type": "crosvm",
-            "socket": "/tmp/crosvm-socket1"
+          "bus": 11,
+          "port": 22,
+          "description": "All devices on port 22 bus 11"
         }
-    ],
-    "general" : {
-        "api": {
-            "enable": false,
-            "host": "127.0.0.1",
-            "port": 2000,
-            "transports": ["tcp", "vsock", "unix"]
+      ]
+    },
+    {
+      "description": "Devices for Multiple VMs",
+      "allowedVms": ["vm1", "vm2"],
+      "allow": [
+        {
+          "interfaceClass": 14,
+          "description": "Video (USB Webcams)"
         },
-        "crosvm": "/usr/local/bin/crosvm"
+        {
+          "vendorId": "1050",
+          "productId": "0407",
+          "description": "Yubikey"
+        }
+      ]
     }
+  ],
+  "pciPassthrough": [
+    {
+      "description": "Devices for VM1",
+      "targetVm": "vm1",
+      "allow": [
+        {
+          "address": "0000:00:14.3",
+          "description": "Intel WiFi card"
+        },
+        {
+          "vendorId": "8086",
+          "deviceId": "a7a1",
+          "description": "Intel Iris GPU"
+        }
+      ]
+    }
+  ],
+  "evdevPassthrough": {
+    "targetVm": "vm1"
+  },
+  "vms": [
+    {
+      "name": "vm1",
+      "type": "qemu",
+      "socket": "/tmp/qmp-socket1"
+    },
+    {
+      "name": "vm2",
+      "type": "crosvm",
+      "socket": "/tmp/crosvm-socket1"
+    }
+  ],
+  "general": {
+    "api": {
+      "enable": false,
+      "host": "127.0.0.1",
+      "port": 2000,
+      "transports": ["tcp", "vsock", "unix"]
+    },
+    "crosvm": "/usr/local/bin/crosvm"
+  }
 }
