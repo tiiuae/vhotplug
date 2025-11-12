@@ -52,3 +52,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "inotify_simple.*"
 ignore_missing_imports = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
