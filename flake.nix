@@ -16,7 +16,7 @@
   };
 
   outputs =
-    inputs@{ flake-parts, ... }:
+    inputs@{ self, flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.treefmt-nix.flakeModule
@@ -29,11 +29,14 @@
         "aarch64-darwin"
       ];
 
+      flake.nixosModules.default = ./nix/nixos-module.nix;
+
       perSystem =
         {
           config,
           self',
           pkgs,
+          system,
           ...
         }:
         let
@@ -51,27 +54,12 @@
         {
           # Package definition
           packages = {
-            default = pkgs.python3Packages.buildPythonApplication {
-              pname = "vhotplug";
-              version = "1.0";
+            default = pkgs.callPackage ./nix/package.nix { };
+          };
 
-              src = ./.;
-
-              format = "setuptools";
-
-              propagatedBuildInputs = pythonDeps;
-
-              # Skip tests if they exist
-              doCheck = false;
-
-              meta = with pkgs.lib; {
-                description = "Hot-plugging USB and PCI devices to virtual machines";
-                homepage = "https://github.com/tiiuae/vhotplug";
-                license = licenses.asl20;
-                platforms = platforms.linux;
-                maintainers = [ ];
-              };
-            };
+          # NixOS tests (only x86_64-linux for now due to KVM requirement - and not having aarch64 CI runner with KVM)
+          checks = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            vhotplug-service = pkgs.callPackage ./nix/nixos-test.nix { inherit self; };
           };
 
           # Development shell
