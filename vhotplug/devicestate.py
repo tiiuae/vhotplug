@@ -51,7 +51,8 @@ class DeviceState:
     def set_vm_for_device(self, dev_info, vm_name: str):
         with self.lock:
             if isinstance(dev_info, USBInfo):
-                self.usb_device_vm_map[dev_info.device_node] = vm_name
+                if dev_info.device_node is not None:
+                    self.usb_device_vm_map[dev_info.device_node] = vm_name
             else:
                 self.pci_device_vm_map[dev_info.address] = vm_name
 
