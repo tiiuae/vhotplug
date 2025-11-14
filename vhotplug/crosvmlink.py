@@ -38,7 +38,7 @@ class CrosvmLink:
 
                 # Check if the device is already connected
                 devices = await self.usb_list()
-                for index, vid, pid in devices:
+                for _, vid, pid in devices:
                     if vid == usb_info.vid and pid == usb_info.pid:
                         logger.info(
                             "Device %s:%s is already attached to %s, skipping",
