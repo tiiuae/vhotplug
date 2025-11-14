@@ -70,7 +70,6 @@
               # Python development tools
               python3Packages.pytest
               python3Packages.mypy
-              python3Packages.pylint
               ruff
 
               # Formatting
@@ -92,7 +91,7 @@
               # Python formatting
               ruff-format.enable = true;
               # TODO: maybe instead of pylint?
-              # ruff-check.enable = true;
+              ruff-check.enable = true;
 
               # Nix formatting
               nixfmt.enable = true;
