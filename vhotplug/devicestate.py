@@ -67,8 +67,6 @@ class DeviceState:
                 if dev_info.device_node is None:
                     return None
                 return self.usb_device_vm_map.get(dev_info.device_node)
-            if dev_info.address is None:
-                return None
             return self.pci_device_vm_map.get(dev_info.address)
 
     def remove_vm_for_device(self, dev_info: USBInfo | PCIInfo) -> None:

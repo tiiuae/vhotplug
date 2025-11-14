@@ -358,7 +358,7 @@ class QEMULink:
             await self._remove_pci_device_by_qemu_id(qemuid)
 
     async def _find_pci_device(self, pci_info: PCIInfo) -> str | None:
-        res = await self.query_pci()
+        res = await self._execute("query-pci")
         if not res:
             return None
 
@@ -384,14 +384,18 @@ class QEMULink:
             return None
 
         for root_bus in res:
-            qemu_id = walk_devices(root_bus["devices"])
-            if qemu_id is not None:
-                return qemu_id
+            if isinstance(root_bus, dict):
+                devices = root_bus["devices"]
+                if not isinstance(devices, list):
+                    continue
+                qemu_id = walk_devices(devices)
+                if qemu_id is not None:
+                    return qemu_id
 
         return None
 
     async def _find_empty_pci_bridge(self) -> str | None:
-        res = await self.query_pci()
+        res = await self._execute("query-pci")
         if not res:
             return None
 
@@ -412,9 +416,13 @@ class QEMULink:
             return None
 
         for root_bus in res:
-            qemu_id = walk_devices(root_bus["devices"])
-            if qemu_id:
-                return str(qemu_id)
+            if isinstance(root_bus, dict):
+                devices = root_bus["devices"]
+                if not isinstance(devices, list):
+                    continue
+                qemu_id = walk_devices(devices)
+                if qemu_id:
+                    return str(qemu_id)
 
         return None
 

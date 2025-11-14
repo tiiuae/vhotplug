@@ -12,6 +12,7 @@ from vhotplug.device import (
     attach_connected_pci,
     attach_connected_usb,
     attach_device,
+    find_vm_for_device,
     get_usb_info,
     is_usb_device,
     log_device,
@@ -59,7 +60,9 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 app_context.api_server.notify_usb_connected(usb_info)
 
             try:
-                await attach_device(app_context, usb_info, True)
+                res = await find_vm_for_device(app_context, usb_info)
+                if res:
+                    await attach_device(app_context, res, usb_info, True)
             except RuntimeError:
                 logger.exception("Failed to attach device %s", device.device_node)
 
