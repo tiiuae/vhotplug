@@ -407,8 +407,8 @@ async def attach_connected_usb(app_context: "AppContext", vms_scope: list[str] |
 
             try:
                 await attach_device(app_context, usb_info, False, vms_scope)
-            except RuntimeError as e:
-                logger.exception("Failed to attach USB device %s: %s", usb_info.friendly_name(), e)
+            except RuntimeError:
+                logger.exception("Failed to attach USB device %s", usb_info.friendly_name())
 
 
 async def detach_connected_usb(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
@@ -446,8 +446,8 @@ async def detach_connected_usb(app_context: "AppContext", vms_scope: list[str] |
                         continue
                 try:
                     await _remove_existing_device(app_context, usb_info)
-                except RuntimeError as e:
-                    logger.exception("Failed to remove %s: %s", usb_info.friendly_name(), e)
+                except RuntimeError:
+                    logger.exception("Failed to remove %s", usb_info.friendly_name())
             else:
                 logger.warning("Device %s does not match any rules", usb_info.friendly_name())
 
@@ -511,8 +511,8 @@ async def attach_connected_pci(app_context: "AppContext", vms_scope: list[str] |
 
         try:
             await attach_device(app_context, pci_info, False, vms_scope)
-        except RuntimeError as e:
-            logger.exception("Failed to attach PCI device %s: %s", pci_info.friendly_name(), e)
+        except RuntimeError:
+            logger.exception("Failed to attach PCI device %s", pci_info.friendly_name())
 
 
 async def detach_connected_pci(app_context: "AppContext", vms_scope: list[str] | None = None) -> None:
@@ -550,8 +550,8 @@ async def detach_connected_pci(app_context: "AppContext", vms_scope: list[str] |
 
                 try:
                     await _remove_existing_device(app_context, pci_info)
-                except RuntimeError as e:
-                    logger.exception("Failed to remove %s: %s", pci_info.friendly_name(), e)
+                except RuntimeError:
+                    logger.exception("Failed to remove %s", pci_info.friendly_name())
             else:
                 logger.warning("Device %s does not match any rules", pci_info.friendly_name())
 

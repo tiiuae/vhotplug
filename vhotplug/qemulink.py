@@ -32,8 +32,8 @@ class QEMULink:
                     logger.info("The VM is running")
                     break
                 logger.info("VM status: %s", status)
-            except QMPError as e:
-                logger.exception("Failed to query VM status: %s", e)
+            except QMPError:
+                logger.exception("Failed to query VM status")
             await asyncio.sleep(1)
 
     def _qemu_id_usb(self, usb_info: USBInfo) -> str:
@@ -83,8 +83,8 @@ class QEMULink:
     ) -> dict[str, Any] | list[Any] | str | None:
         try:
             return await self._execute(cmd, args, False)
-        except RuntimeError as e:
-            logger.exception(str(e))
+        except RuntimeError:
+            logger.exception("Exception occurred")
             return None
 
     async def query_commands(self) -> None:

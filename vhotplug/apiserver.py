@@ -137,9 +137,9 @@ class APIServer:
                 )
                 t.start()
                 self.client_threads.append(t)
-            except OSError as e:
+            except OSError:
                 if self.running:
-                    logger.exception("API accept error: %s", e)
+                    logger.exception("API accept error")
 
     def _client_handler(self, client_sock: socket.socket, client_addr: Any) -> None:
         buffer = ""
@@ -160,15 +160,10 @@ class APIServer:
                             msg = json.loads(raw_msg)
                             res = self.handle_message(client_sock, client_addr, msg)
                             self._send(client_sock, res)
-                        except (TypeError, ValueError) as e:
-                            logger.exception(
-                                "Invalid JSON from %s: %s, error %s",
-                                client_addr,
-                                raw_msg,
-                                e,
-                            )
-        except OSError as e:
-            logger.exception("API client %s receive failed: %s", client_addr, e)
+                        except (TypeError, ValueError):
+                            logger.exception("Invalid JSON from %s: %s", client_addr, raw_msg)
+        except OSError:
+            logger.exception("API client %s receive failed", client_addr)
         finally:
             with self.clients_lock:
                 if client_sock in self.clients:
@@ -180,10 +175,10 @@ class APIServer:
         try:
             data = json.dumps(msg) + "\n"
             client_sock.sendall(data.encode("utf-8"))
-        except OSError as e:
-            logger.exception("API send failed (OS error): %s", e)
-        except (TypeError, ValueError) as e:
-            logger.exception("API send failed (JSON error): %s", e)
+        except OSError:
+            logger.exception("API send failed (OS error)")
+        except (TypeError, ValueError):
+            logger.exception("API send failed (JSON error)")
 
     def notify(self, msg: dict[str, Any]) -> None:
         logger.debug("Sending notification: %s", msg)
@@ -271,7 +266,7 @@ class APIServer:
             logger.info('API request "%s" from %s', action, client_addr)
             return handler(client_sock, client_addr, msg)
         except (RuntimeError, TypeError, ValueError) as e:
-            logger.exception("Failed to process API request: %s", e)
+            logger.exception("Failed to process API request")
             return {"result": "failed", "error": str(e)}
 
     def _on_enable_notifications(

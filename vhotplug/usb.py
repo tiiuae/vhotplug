@@ -155,8 +155,8 @@ def parse_usb_interfaces(interfaces: str | None) -> list[dict[str, int]]:
                             "protocol": int(usb_protocol, 16),
                         }
                     )
-        except (ValueError, TypeError) as e:
-            logger.exception("Failed to parse USB interfaces: %s", e)
+        except (ValueError, TypeError):
+            logger.exception("Failed to parse USB interfaces")
     return result
 
 

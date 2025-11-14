@@ -123,7 +123,7 @@ class CrosvmLink:
             logger.info("Detached USB device %s", dev_id)
             return
         except OSError as e:
-            logger.exception("Failed to detach USB device: %s", e)
+            logger.exception("Failed to detach USB device")
             raise RuntimeError(e) from None
 
     async def usb_list(self) -> list[tuple[int, str, str]]:
@@ -155,8 +155,8 @@ class CrosvmLink:
                         devices.append((index, vid, pid))
                         logger.debug("USB device %s: %s:%s", index, vid, pid)
 
-        except OSError as e:
-            logger.exception("Failed to list USB devices: %s", e)
+        except OSError:
+            logger.exception("Failed to list USB devices")
         return devices
 
     async def remove_usb_device(self, usb_info: USBInfo) -> None:
