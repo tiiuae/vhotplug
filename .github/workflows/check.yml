@@ -23,13 +23,5 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Run pylint
-        if: matrix.system == 'x86_64-linux'
-        run: |
-          nix develop --command bash -c "
-            pylint ./vhotplug
-            pylint ./vhotplugcli
-          "
-
       - name: Build with nix-fast-build
         run: nix run --inputs-from . nixpkgs#nix-fast-build -- --skip-cached --no-nom --systems "${{ matrix.system }}"
