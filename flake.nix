@@ -71,7 +71,7 @@
               python3Packages.pytest
               python3Packages.mypy
               python3Packages.pylint
-              # python3Packages.ruff
+              ruff
 
               # Formatting
               config.treefmt.build.wrapper
@@ -90,7 +90,7 @@
 
             programs = {
               # Python formatting
-              # ruff-format.enable = true;
+              ruff-format.enable = true;
               # TODO: maybe instead of pylint?
               # ruff-check.enable = true;
 
