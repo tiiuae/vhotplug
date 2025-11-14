@@ -1,30 +1,32 @@
-import socket
-import threading
+import asyncio
 import json
 import logging
-import asyncio
 import os
-from typing import Any, Callable, TYPE_CHECKING
+import socket
+import threading
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
 from vhotplug.device import (
-    get_usb_devices,
-    get_pci_devices,
+    attach_connected_pci,
+    attach_connected_usb,
+    attach_existing_pci_device,
+    attach_existing_pci_device_by_vid_did,
     attach_existing_usb_device,
     attach_existing_usb_device_by_bus_port,
     attach_existing_usb_device_by_vid_pid,
+    detach_connected_pci,
+    detach_connected_usb,
+    get_pci_devices,
+    get_usb_devices,
+    remove_existing_pci_device,
+    remove_existing_pci_device_by_vid_did,
     remove_existing_usb_device,
     remove_existing_usb_device_by_bus_port,
     remove_existing_usb_device_by_vid_pid,
-    attach_connected_usb,
-    detach_connected_usb,
-    attach_connected_pci,
-    detach_connected_pci,
-    attach_existing_pci_device,
-    attach_existing_pci_device_by_vid_did,
-    remove_existing_pci_device,
-    remove_existing_pci_device_by_vid_did,
 )
-from vhotplug.usb import USBInfo
 from vhotplug.pci import PCIInfo
+from vhotplug.usb import USBInfo
 
 if TYPE_CHECKING:
     from vhotplug.vhotplug import AppContext
@@ -137,7 +139,7 @@ class APIServer:
                 self.client_threads.append(t)
             except OSError as e:
                 if self.running:
-                    logger.error("API accept error: %s", e)
+                    logger.exception("API accept error: %s", e)
 
     def _client_handler(self, client_sock: socket.socket, client_addr: Any) -> None:
         buffer = ""
@@ -159,14 +161,14 @@ class APIServer:
                             res = self.handle_message(client_sock, client_addr, msg)
                             self._send(client_sock, res)
                         except (TypeError, ValueError) as e:
-                            logger.error(
+                            logger.exception(
                                 "Invalid JSON from %s: %s, error %s",
                                 client_addr,
                                 raw_msg,
                                 e,
                             )
         except OSError as e:
-            logger.error("API client %s receive failed: %s", client_addr, e)
+            logger.exception("API client %s receive failed: %s", client_addr, e)
         finally:
             with self.clients_lock:
                 if client_sock in self.clients:
@@ -179,9 +181,9 @@ class APIServer:
             data = json.dumps(msg) + "\n"
             client_sock.sendall(data.encode("utf-8"))
         except OSError as e:
-            logger.error("API send failed (OS error): %s", e)
+            logger.exception("API send failed (OS error): %s", e)
         except (TypeError, ValueError) as e:
-            logger.error("API send failed (JSON error): %s", e)
+            logger.exception("API send failed (JSON error): %s", e)
 
     def notify(self, msg: dict[str, Any]) -> None:
         logger.debug("Sending notification: %s", msg)
@@ -267,10 +269,9 @@ class APIServer:
             return {"result": "failed", "error": f"Unknown message: {action}"}
         try:
             logger.info('API request "%s" from %s', action, client_addr)
-            result = handler(client_sock, client_addr, msg)
-            return result
+            return handler(client_sock, client_addr, msg)
         except (RuntimeError, TypeError, ValueError) as e:
-            logger.error("Failed to process API request: %s", e)
+            logger.exception("Failed to process API request: %s", e)
             return {"result": "failed", "error": str(e)}
 
     def _on_enable_notifications(

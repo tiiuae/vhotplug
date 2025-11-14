@@ -2,17 +2,18 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Any
-from vhotplug.usb import parse_usb_interfaces, USBInfo
+from typing import Any
+
 from vhotplug.pci import PCIInfo
+from vhotplug.usb import USBInfo, parse_usb_interfaces
 
 logger = logging.getLogger("vhotplug")
 
 
 @dataclass
 class PassthroughInfo:
-    target_vm: Optional[str]
-    allowed_vms: Optional[List[str]]
+    target_vm: str | None
+    allowed_vms: list[str] | None
     skip_on_suspend: bool = False
     pci_iommu_add_all: bool = False
     pci_iommu_skip_if_shared: bool = False
@@ -24,7 +25,7 @@ class Config:
         self.config = self.load()
 
     def load(self) -> dict[str, Any]:
-        with open(self.path, "r", encoding="utf-8") as file:
+        with open(self.path, encoding="utf-8") as file:
             result: dict[str, Any] = json.load(file)
             return result
 
@@ -69,16 +70,10 @@ class Config:
             rule_vid,
             rule_pid,
         )
-        vid_match = (
-            rule_vid and usb_info.vid and usb_info.vid.casefold() == rule_vid.casefold()
-        )
-        pid_match = (
-            rule_pid and usb_info.pid and usb_info.pid.casefold() == rule_pid.casefold()
-        )
+        vid_match = rule_vid and usb_info.vid and usb_info.vid.casefold() == rule_vid.casefold()
+        pid_match = rule_pid and usb_info.pid and usb_info.pid.casefold() == rule_pid.casefold()
         if vid_match and pid_match:
-            logger.debug(
-                "Match by vendor id / product id, description: %s", rule_description
-            )
+            logger.debug("Match by vendor id / product id, description: %s", rule_description)
             return True
 
         # Match by vendor name / product name
@@ -91,16 +86,10 @@ class Config:
             rule_vname,
             rule_pname,
         )
-        vname_match = rule_vname and re.match(
-            rule_vname, usb_info.vendor_name or "", re.IGNORECASE
-        )
-        pname_match = rule_pname and re.match(
-            rule_pname, usb_info.product_name or "", re.IGNORECASE
-        )
+        vname_match = rule_vname and re.match(rule_vname, usb_info.vendor_name or "", re.IGNORECASE)
+        pname_match = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
         if vname_match or pname_match:
-            logger.debug(
-                "Match by vendor name / product name, description: %s", rule_description
-            )
+            logger.debug("Match by vendor name / product name, description: %s", rule_description)
             return True
 
         # Match by bus/port
@@ -114,9 +103,7 @@ class Config:
             rule_port,
         )
         bus_match = rule_bus and usb_info.busnum and usb_info.busnum == rule_bus
-        port_match = (
-            rule_port and usb_info.root_port and usb_info.root_port == rule_port
-        )
+        port_match = rule_port and usb_info.root_port and usb_info.root_port == rule_port
         if bus_match and port_match:
             logger.debug("Match by bus / port, description: %s", rule_description)
             return True
@@ -132,18 +119,10 @@ class Config:
             usb_info.device_protocol,
         )
         if rule_device_class and rule_device_class == usb_info.device_class:
-            subclass_match = (
-                not rule_device_subclass
-                or rule_device_subclass == usb_info.device_subclass
-            )
-            protocol_match = (
-                not rule_device_protocol
-                or rule_device_protocol == usb_info.device_protocol
-            )
+            subclass_match = not rule_device_subclass or rule_device_subclass == usb_info.device_subclass
+            protocol_match = not rule_device_protocol or rule_device_protocol == usb_info.device_protocol
             if subclass_match and protocol_match:
-                logger.debug(
-                    "Match by USB device class, description: %s", rule_description
-                )
+                logger.debug("Match by USB device class, description: %s", rule_description)
                 return True
 
         # Match by interface class, subclass and protocol
@@ -168,14 +147,8 @@ class Config:
                 interface_protocol,
             )
             if rule_interface_class and rule_interface_class == interface_class:
-                subclass_match = (
-                    not rule_interface_subclass
-                    or rule_interface_subclass == interface_subclass
-                )
-                protocol_match = (
-                    not rule_interface_protocol
-                    or rule_interface_protocol == interface_protocol
-                )
+                subclass_match = not rule_interface_subclass or rule_interface_subclass == interface_subclass
+                protocol_match = not rule_interface_protocol or rule_interface_protocol == interface_protocol
                 if subclass_match and protocol_match:
                     logger.debug(
                         "Match by USB interface class, description: %s",
@@ -215,9 +188,7 @@ class Config:
                 rule_did,
             )
             if pci_info.vendor_id == rule_vid and pci_info.device_id == rule_did:
-                logger.debug(
-                    "Match by vendor id / device id, description: %s", rule_description
-                )
+                logger.debug("Match by vendor id / device id, description: %s", rule_description)
                 return True
 
         # Match by PCI class, subclass and programming interface
@@ -231,13 +202,8 @@ class Config:
             pci_info.pci_prog_if,
         )
         if rule_device_class and rule_device_class == pci_info.pci_class:
-            subclass_match = (
-                not rule_device_subclass
-                or rule_device_subclass == pci_info.pci_subclass
-            )
-            prog_if_match = (
-                not rule_device_prog_if or rule_device_prog_if == pci_info.pci_prog_if
-            )
+            subclass_match = not rule_device_subclass or rule_device_subclass == pci_info.pci_subclass
+            prog_if_match = not rule_device_prog_if or rule_device_prog_if == pci_info.pci_prog_if
             if subclass_match and prog_if_match:
                 logger.debug("Match by PCI class, description: %s", rule_description)
                 return True
@@ -275,13 +241,9 @@ class Config:
                     if target_vm:
                         logger.debug("Found VM %s for %s", target_vm, dev_name)
                     elif allowed_vms:
-                        logger.debug(
-                            "Found allowed VMs %s for %s", allowed_vms, dev_name
-                        )
+                        logger.debug("Found allowed VMs %s for %s", allowed_vms, dev_name)
                     else:
-                        logger.error(
-                            "No target VM or allowed VMs defined for rule %s", rule_name
-                        )
+                        logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
 
                     skip_on_suspend = rule.get("skipOnSuspend", False)
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
@@ -295,9 +257,7 @@ class Config:
                     )
 
         except (AttributeError, TypeError) as e:
-            logger.error(
-                "Failed to find VM for device in the configuration file: %s", e
-            )
+            logger.exception("Failed to find VM for device in the configuration file: %s", e)
         return None
 
     def vm_for_evdev_devices(self) -> dict[str, Any] | None:
@@ -308,9 +268,7 @@ class Config:
                 logger.debug("Found VM %s for evdev passthrough", vm_name)
                 return self.get_vm(vm_name)
         except (AttributeError, TypeError) as e:
-            logger.error(
-                "Failed to find VM for evdev device in the configuration file: %s", e
-            )
+            logger.exception("Failed to find VM for evdev device in the configuration file: %s", e)
         return None
 
     def get_all_vms(self) -> list[dict[str, Any]]:

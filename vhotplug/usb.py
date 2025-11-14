@@ -1,5 +1,6 @@
-from typing import NamedTuple, Optional, List, Any, TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING, Any, NamedTuple
+
 import psutil
 import pyudev
 
@@ -10,21 +11,21 @@ logger = logging.getLogger("vhotplug")
 
 
 class USBInfo(NamedTuple):
-    device_node: Optional[str] = None
+    device_node: str | None = None
 
-    vid: Optional[str] = None
-    pid: Optional[str] = None
-    vendor_name: Optional[str] = None
-    product_name: Optional[str] = None
-    interfaces: Optional[str] = None
-    device_class: Optional[int] = None
-    device_subclass: Optional[int] = None
-    device_protocol: Optional[int] = None
-    busnum: Optional[int] = None
-    devnum: Optional[int] = None
-    serial: Optional[str] = None
-    ports: Optional[List[int]] = None
-    sys_name: Optional[str] = None
+    vid: str | None = None
+    pid: str | None = None
+    vendor_name: str | None = None
+    product_name: str | None = None
+    interfaces: str | None = None
+    device_class: int | None = None
+    device_subclass: int | None = None
+    device_protocol: int | None = None
+    busnum: int | None = None
+    devnum: int | None = None
+    serial: str | None = None
+    ports: list[int] | None = None
+    sys_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,7 +94,7 @@ def _bytes_to_int(data: bytes | None) -> int | None:
         return None
 
 
-def _get_ports(sys_name: str) -> List[int]:
+def _get_ports(sys_name: str) -> list[int]:
     try:
         parts = sys_name.split("-")
         # bus = int(parts[0])
@@ -107,12 +108,8 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
     device_node = device.device_node
     vid = device.properties.get("ID_VENDOR_ID")
     pid = device.properties.get("ID_MODEL_ID")
-    vendor_name = device.properties.get(
-        "ID_VENDOR_FROM_DATABASE"
-    ) or device.properties.get("ID_VENDOR")
-    product_name = device.properties.get(
-        "ID_MODEL_FROM_DATABASE"
-    ) or device.properties.get("ID_MODEL")
+    vendor_name = device.properties.get("ID_VENDOR_FROM_DATABASE") or device.properties.get("ID_VENDOR")
+    product_name = device.properties.get("ID_MODEL_FROM_DATABASE") or device.properties.get("ID_MODEL")
     interfaces = device.properties.get("ID_USB_INTERFACES")
     device_class = _bytes_to_int(device.attributes.get("bDeviceClass"))
     device_subclass = _bytes_to_int(device.attributes.get("bDeviceSubClass"))
@@ -141,8 +138,8 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
     )
 
 
-def parse_usb_interfaces(interfaces: str | None) -> List[dict[str, int]]:
-    result: List[dict[str, int]] = []
+def parse_usb_interfaces(interfaces: str | None) -> list[dict[str, int]]:
+    result: list[dict[str, int]] = []
     if interfaces:
         try:
             interfaces = interfaces.strip(":")
@@ -159,7 +156,7 @@ def parse_usb_interfaces(interfaces: str | None) -> List[dict[str, int]]:
                         }
                     )
         except (ValueError, TypeError) as e:
-            logger.error("Failed to parse USB interfaces: %s", e)
+            logger.exception("Failed to parse USB interfaces: %s", e)
     return result
 
 
@@ -180,18 +177,14 @@ def find_usb_parent(device: pyudev.Device) -> pyudev.Device | None:
     return device.find_parent(subsystem="usb", device_type="usb_device")
 
 
-def usb_device_by_node(
-    app_context: "AppContext", device_node: str
-) -> pyudev.Device | None:
+def usb_device_by_node(app_context: "AppContext", device_node: str) -> pyudev.Device | None:
     try:
         return pyudev.Devices.from_device_file(app_context.udev_context, device_node)
     except pyudev.DeviceNotFoundError:
         return None
 
 
-def usb_device_by_bus_port(
-    app_context: "AppContext", bus: int, port: int
-) -> pyudev.Device | None:
+def usb_device_by_bus_port(app_context: "AppContext", bus: int, port: int) -> pyudev.Device | None:
     for device in app_context.udev_context.list_devices(subsystem="usb"):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
@@ -200,9 +193,7 @@ def usb_device_by_bus_port(
     return None
 
 
-def usb_device_by_vid_pid(
-    app_context: "AppContext", vid: str, pid: str
-) -> pyudev.Device | None:
+def usb_device_by_vid_pid(app_context: "AppContext", vid: str, pid: str) -> pyudev.Device | None:
     for device in app_context.udev_context.list_devices(subsystem="usb"):
         if is_usb_device(device):
             usb_info = get_usb_info(device)

@@ -1,8 +1,9 @@
-import logging
 import argparse
+import fcntl
+import logging
 import socket
 import struct
-import fcntl
+
 from vhotplugcli.apiclient import APIClient
 
 logger = logging.getLogger(__name__)
@@ -110,9 +111,7 @@ def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str
     logger.info("Successfully attached")
 
 
-def pci_detach(
-    client: APIClient, address: str | None, vid: str | None, did: str | None
-) -> None:
+def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str | None) -> None:
     if not address and not (vid and did):
         raise RuntimeError("You must specify either --address or --vid and --did")
 
@@ -192,9 +191,7 @@ def main() -> int:
         default="/var/lib/vhotplug/vhotplug.sock",
         help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)",
     )
-    parser.add_argument(
-        "-s", "--host", default="127.0.0.1", help="TCP host (default: 127.0.0.1)"
-    )
+    parser.add_argument("-s", "--host", default="127.0.0.1", help="TCP host (default: 127.0.0.1)")
     parser.add_argument(
         "-p",
         "--net-port",
@@ -216,9 +213,7 @@ def main() -> int:
     usb_sub = usb_parser.add_subparsers(dest="action", required=True)
 
     usb_attach_parser = usb_sub.add_parser("attach", help="Attach USB device")
-    usb_attach_parser.add_argument(
-        "--devnode", help="Path to USB device node (/dev/bus/usb/...)"
-    )
+    usb_attach_parser.add_argument("--devnode", help="Path to USB device node (/dev/bus/usb/...)")
     usb_attach_parser.add_argument("--bus", type=int, help="USB bus")
     usb_attach_parser.add_argument("--port", type=int, help="USB port")
     usb_attach_parser.add_argument("--vid", help="USB Vendor ID")
@@ -227,9 +222,7 @@ def main() -> int:
     usb_attach_parser.set_defaults(func=lambda a, c: usb_attach(c, a.devnode, a.bus, a.port, a.vid, a.pid, a.vm))
 
     usb_detach_parser = usb_sub.add_parser("detach", help="Detach USB device")
-    usb_detach_parser.add_argument(
-        "--devnode", help="Path to USB device node (/dev/bus/usb/...)"
-    )
+    usb_detach_parser.add_argument("--devnode", help="Path to USB device node (/dev/bus/usb/...)")
     usb_detach_parser.add_argument("--bus", type=int, help="USB bus")
     usb_detach_parser.add_argument("--port", type=int, help="USB port")
     usb_detach_parser.add_argument("--vid", help="USB Vendor ID")
@@ -258,17 +251,13 @@ def main() -> int:
     pci_attach_parser.add_argument("--vid", help="USB Vendor ID")
     pci_attach_parser.add_argument("--did", help="USB Device ID")
     pci_attach_parser.add_argument("--vm", help="Virtual machine name")
-    pci_attach_parser.set_defaults(
-        func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm)
-    )
+    pci_attach_parser.set_defaults(func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm))
 
     pci_detach_parser = pci_sub.add_parser("detach", help="Detach PCI device")
     pci_detach_parser.add_argument("--address", help="PCI Address (e.g., 0000:00:01.0)")
     pci_detach_parser.add_argument("--vid", help="PCI Vendor ID")
     pci_detach_parser.add_argument("--did", help="PCI Device ID")
-    pci_detach_parser.set_defaults(
-        func=lambda a, c: pci_detach(c, a.address, a.vid, a.did)
-    )
+    pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did))
 
     usb_list_parser = pci_sub.add_parser("list", help="Get PCI list")
     usb_list_parser.set_defaults(func=lambda a, c: pci_list(c))
@@ -302,7 +291,7 @@ def main() -> int:
         )
         args.func(args, client)
     except (RuntimeError, ValueError, OSError) as e:
-        logger.error(str(e))
+        logger.exception(str(e))
         return 1
     except KeyboardInterrupt:
         logger.info("Exiting")

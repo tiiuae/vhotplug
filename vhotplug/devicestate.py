@@ -1,9 +1,10 @@
 import json
-import threading
 import logging
+import threading
 from pathlib import Path
-from vhotplug.usb import USBInfo
+
 from vhotplug.pci import PCIInfo
+from vhotplug.usb import USBInfo
 
 logger = logging.getLogger("vhotplug")
 
@@ -75,9 +76,8 @@ class DeviceState:
             if isinstance(dev_info, USBInfo):
                 if dev_info.device_node in self.usb_device_vm_map:
                     del self.usb_device_vm_map[dev_info.device_node]
-            else:
-                if dev_info.address in self.pci_device_vm_map:
-                    del self.pci_device_vm_map[dev_info.address]
+            elif dev_info.address in self.pci_device_vm_map:
+                del self.pci_device_vm_map[dev_info.address]
 
     def select_vm_for_device(self, dev_info: USBInfo | PCIInfo, vm_name: str) -> None:
         with self.lock:

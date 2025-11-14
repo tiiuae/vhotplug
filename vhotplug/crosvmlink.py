@@ -1,9 +1,10 @@
-import logging
 import asyncio
+import logging
 import subprocess
-from vhotplug.vmm import wait_for_boot_crosvm
-from vhotplug.usb import USBInfo
+
 from vhotplug.pci import PCIInfo
+from vhotplug.usb import USBInfo
+from vhotplug.vmm import wait_for_boot_crosvm
 
 logger = logging.getLogger("vhotplug")
 
@@ -109,9 +110,7 @@ class CrosvmLink:
                 check=False,
             )
             if result.returncode != 0:
-                logger.error(
-                    "Failed to detach USB device, error code: %s", result.returncode
-                )
+                logger.error("Failed to detach USB device, error code: %s", result.returncode)
                 logger.error("Out: %s", result.stdout)
                 logger.error("Err: %s", result.stderr)
                 raise RuntimeError(result.returncode)
@@ -124,7 +123,7 @@ class CrosvmLink:
             logger.info("Detached USB device %s", dev_id)
             return
         except OSError as e:
-            logger.error("Failed to detach USB device: %s", e)
+            logger.exception("Failed to detach USB device: %s", e)
             raise RuntimeError(e) from None
 
     async def usb_list(self) -> list[tuple[int, str, str]]:
@@ -138,9 +137,7 @@ class CrosvmLink:
                 check=False,
             )
             if result.returncode != 0:
-                logger.error(
-                    "Failed to get USB list, error code: %s", result.returncode
-                )
+                logger.error("Failed to get USB list, error code: %s", result.returncode)
                 logger.error("Out: %s", result.stdout)
                 logger.error("Err: %s", result.stderr)
             else:
@@ -159,7 +156,7 @@ class CrosvmLink:
                         logger.debug("USB device %s: %s:%s", index, vid, pid)
 
         except OSError as e:
-            logger.error("Failed to list USB devices: %s", e)
+            logger.exception("Failed to list USB devices: %s", e)
         return devices
 
     async def remove_usb_device(self, usb_info: USBInfo) -> None:

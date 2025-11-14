@@ -1,6 +1,7 @@
-import os
 import logging
+import os
 from typing import Any
+
 from inotify_simple import INotify, flags
 
 logger = logging.getLogger("vhotplug")
@@ -12,10 +13,7 @@ class FileWatcher:
         self.watch_descriptors: dict[int, dict[str, Any]] = {}
 
     def directory_monitored(self, directory_name: str) -> bool:
-        return any(
-            desc["directory"] == directory_name
-            for desc in self.watch_descriptors.values()
-        )
+        return any(desc["directory"] == directory_name for desc in self.watch_descriptors.values())
 
     def get_directory_wd(self, directory_name: str) -> int | None:
         for wd, desc in self.watch_descriptors.items():
