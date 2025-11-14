@@ -34,17 +34,9 @@ def wait_for_boot(socket_path: str, vm_boot_timeout: int, wait_after_boot: int, 
     return False
 
 
-def wait_for_boot_crosvm(
-    socket_path: str, vm_boot_timeout: int, wait_after_boot: int
-) -> bool:
-    return wait_for_boot(
-        socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_SEQPACKET
-    )
+def wait_for_boot_crosvm(socket_path: str, vm_boot_timeout: int, wait_after_boot: int) -> bool:
+    return wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_SEQPACKET)
 
 
-def wait_for_boot_qemu(
-    socket_path: str, vm_boot_timeout: int, wait_after_boot: int
-) -> bool:
-    return wait_for_boot(
-        socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_STREAM
-    )
+def wait_for_boot_qemu(socket_path: str, vm_boot_timeout: int, wait_after_boot: int) -> bool:
+    return wait_for_boot(socket_path, vm_boot_timeout, wait_after_boot, socket.SOCK_STREAM)

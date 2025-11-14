@@ -1,9 +1,9 @@
-import socket
 import json
 import logging
+import socket
 import time
-from typing import Any, Callable
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +41,14 @@ class APIClient:
                 if not self.cid or not self.port:
                     raise ValueError("VSOCK CID and port are required")
 
-                logger.debug(
-                    "Connecting to vsock cid %s on port %s", self.cid, self.port
-                )
+                logger.debug("Connecting to vsock cid %s on port %s", self.cid, self.port)
                 self.sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
                 self.sock.connect((self.cid, self.port))
             elif self.transport == "tcp":
                 if not self.host or not self.port:
                     raise ValueError("TCP host and port are required")
 
-                logger.debug(
-                    "Connecting to tcp host %s on port %s", self.host, self.port
-                )
+                logger.debug("Connecting to tcp host %s on port %s", self.host, self.port)
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.connect((self.host, self.port))
             elif self.transport == "unix":
@@ -66,7 +62,7 @@ class APIClient:
                 raise ValueError("API transport must be either vsock, tcp or unix")
 
         except OSError as e:
-            raise RuntimeError(f"Failed to connect: {str(e)}") from e
+            raise RuntimeError(f"Failed to connect: {e!s}") from e
         logger.debug("Connected")
 
     def send(self, msg: Mapping[str, Any]) -> dict[str, Any]:
@@ -92,7 +88,7 @@ class APIClient:
                     result: dict[str, Any] = json.loads(msg)
                     return result
                 except ValueError:
-                    logger.error("Invalid JSON in API response: %s", msg)
+                    logger.exception("Invalid JSON in API response: %s", msg)
 
     def close(self) -> None:
         if self.sock:
@@ -164,9 +160,7 @@ class APIClient:
                 while True:
                     data = client.sock.recv(4096)
                     if not data:
-                        raise ConnectionError(
-                            "API connection for notifications closed by remote"
-                        )
+                        raise ConnectionError("API connection for notifications closed by remote")
                     buffer += data.decode("utf-8")
                     while "\n" in buffer:
                         msg, buffer = buffer.split("\n", 1)
@@ -174,7 +168,7 @@ class APIClient:
                             parsed = json.loads(msg)
                             callback(parsed)
                         except ValueError:
-                            logger.error("Invalid JSON in API notification: %s", msg)
+                            logger.exception("Invalid JSON in API notification: %s", msg)
             except OSError as e:
                 logger.warning("Notification listener error: %s", e)
                 logger.warning("Reconnecting in %s sec...", reconnect_delay)

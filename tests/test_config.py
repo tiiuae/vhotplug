@@ -57,9 +57,7 @@ def test_audio() -> None:
 def test_audio_and_video() -> None:
     config = Config("config.json")
     res = config.vm_for_device(USBInfo(interfaces=":010100:0e0100:"))
-    assert (
-        res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
-    )
+    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
 
 
 def test_webcam() -> None:
@@ -73,9 +71,7 @@ def test_webcam() -> None:
             interfaces=":0e0100:0e0200:0e0101:0e0201:fe0101:",
         )
     )
-    assert (
-        res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
-    )
+    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
 
 
 def test_ssd() -> None:

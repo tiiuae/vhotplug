@@ -1,24 +1,25 @@
-import logging
-import asyncio
 import argparse
+import asyncio
+import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+
 import pyudev
-from vhotplug.device import (
-    attach_device,
-    remove_device,
-    log_device,
-    is_usb_device,
-    get_usb_info,
-    attach_connected_usb,
-    attach_connected_pci,
-)
-from vhotplug.evdev import attach_connected_evdev
-from vhotplug.config import Config
-from vhotplug.filewatcher import FileWatcher
+
 from vhotplug.apiserver import APIServer
+from vhotplug.config import Config
+from vhotplug.device import (
+    attach_connected_pci,
+    attach_connected_usb,
+    attach_device,
+    get_usb_info,
+    is_usb_device,
+    log_device,
+    remove_device,
+)
 from vhotplug.devicestate import DeviceState
+from vhotplug.evdev import attach_connected_evdev
+from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
 
 logger = logging.getLogger("vhotplug")
@@ -30,7 +31,7 @@ class AppContext:
     udev_monitor: pyudev.Monitor
     udev_context: pyudev.Context
     dev_state: DeviceState
-    api_server: Optional[APIServer] = None
+    api_server: APIServer | None = None
 
 
 async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
@@ -60,7 +61,7 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
             try:
                 await attach_device(app_context, usb_info, True)
             except RuntimeError as e:
-                logger.error("Failed to attach device %s: %s", device.device_node, e)
+                logger.exception("Failed to attach device %s: %s", device.device_node, e)
 
     elif device.action == "remove":
         logger.debug("Device unplugged: %s", device.sys_name)
@@ -72,7 +73,7 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
             try:
                 await remove_device(app_context, usb_info)
             except RuntimeError as e:
-                logger.error("Failed to detach device %s: %s", device.device_node, e)
+                logger.exception("Failed to detach device %s: %s", device.device_node, e)
 
             # Notify that USB device is disconnected from host
             if app_context.api_server:
@@ -116,12 +117,8 @@ async def monitor_loop(app_context: AppContext, file_watcher: FileWatcher, attac
 
 
 async def async_main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Hot-plugging USB devices to the virtual machines"
-    )
-    parser.add_argument(
-        "-c", "--config", type=str, required=True, help="Path to the configuration file"
-    )
+    parser = argparse.ArgumentParser(description="Hot-plugging USB devices to the virtual machines")
+    parser.add_argument("-c", "--config", type=str, required=True, help="Path to the configuration file")
     parser.add_argument(
         "-a",
         "--attach-connected",
