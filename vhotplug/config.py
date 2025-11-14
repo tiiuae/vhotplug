@@ -17,6 +17,7 @@ class PassthroughInfo:
     skip_on_suspend: bool = False
     pci_iommu_add_all: bool = False
     pci_iommu_skip_if_shared: bool = False
+    order: int = 0
 
 
 class Config:
@@ -219,6 +220,7 @@ class Config:
             node_name = "usbPassthrough" if is_usb_dev else "pciPassthrough"
             match = self._match_usb if is_usb_dev else self._match_pci
 
+            order = 0
             for rule in self.config.get(node_name, []):
                 rule_name = rule.get("description")
                 if self._disabled(rule):
@@ -226,6 +228,7 @@ class Config:
 
                 found = False
                 for allow in rule.get("allow", []):
+                    order = order + 1
                     if match(dev_info, allow):
                         found = True
                         break
@@ -249,11 +252,7 @@ class Config:
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
                     return PassthroughInfo(
-                        target_vm,
-                        allowed_vms,
-                        skip_on_suspend,
-                        pci_iommu_add_all,
-                        pci_iommu_skip_if_shared,
+                        target_vm, allowed_vms, skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order
                     )
 
         except (AttributeError, TypeError):

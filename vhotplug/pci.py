@@ -13,7 +13,7 @@ logger = logging.getLogger("vhotplug")
 
 
 class PCIInfo(NamedTuple):
-    address: str | None = None
+    address: str
     driver: str | None = None
     vendor_id: int | None = None
     device_id: int | None = None
@@ -45,7 +45,7 @@ class PCIInfo(NamedTuple):
         }
 
     def friendly_name(self) -> str:
-        return f"{self.vid}:{self.did} ({self.vendor_name} {self.device_name})"
+        return f"{self.address} {self.vid}:{self.did} ({self.vendor_name} {self.device_name})"
 
     def runtime_id(self) -> str:
         return f"pci-{self.address}"
