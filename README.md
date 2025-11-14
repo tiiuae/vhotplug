@@ -176,7 +176,7 @@ Inside the dev shell, you have access to:
 - `vhotplug` - The main application
 - `pytest` - Run tests
 - `mypy` - Type checking
-- `pylint` - Code linting
+- `ruff` - Code linting and formatting
 - `treefmt` - Format all code (Nix, Python, JSON, Markdown)
 
 Format and check code:
