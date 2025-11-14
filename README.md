@@ -143,6 +143,30 @@ options:
 }
 ```
 
+# Installation
+
+## With pip
+
+### User Installation
+
+To install vhotplug as a regular user (requires Python >= 3.13):
+
+```bash
+pip install .
+```
+
+This will install vhotplug and its dependencies to your Python environment.
+
+### Developer Installation
+
+For development work, install in editable mode so changes to the source code are immediately reflected:
+
+```bash
+pip install -e .
+```
+
+This allows you to modify the code and test changes without reinstalling.
+
 # Getting Started with Nix
 
 This project uses Nix for reproducible builds and development environments.
