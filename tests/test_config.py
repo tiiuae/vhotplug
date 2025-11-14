@@ -1,14 +1,12 @@
 from vhotplug.config import Config
 from vhotplug.usb import USBInfo
 
+
 def test_input() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            interfaces=":030101:030102:030000:"
-        )
-    )
+    res = config.vm_for_device(USBInfo(interfaces=":030101:030102:030000:"))
     assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
+
 
 def test_input_ignore_vid_pid() -> None:
     config = Config("config.json")
@@ -18,19 +16,17 @@ def test_input_ignore_vid_pid() -> None:
             pid="c52b",
             vendor_name="Logitech",
             product_name="USB_Receiver",
-            interfaces=":030101:030102:030000:"
+            interfaces=":030101:030102:030000:",
         )
     )
     assert res is None
 
+
 def test_ethernet_product_name() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            product_name="Some ethernet device"
-        )
-    )
+    res = config.vm_for_device(USBInfo(product_name="Some ethernet device"))
     assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
+
 
 def test_ethernet_ignore_vid_pid() -> None:
     config = Config("config.json")
@@ -40,38 +36,31 @@ def test_ethernet_ignore_vid_pid() -> None:
             pid="1790",
             vendor_name="ASIX_Elec._Corp.",
             product_name="AX88179",
-            interfaces=":ffff00:"
+            interfaces=":ffff00:",
         )
     )
     assert res is None
+
 
 def test_disabled() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            vid="067b",
-            pid="23a3"
-        )
-    )
+    res = config.vm_for_device(USBInfo(vid="067b", pid="23a3"))
     assert res is None
+
 
 def test_audio() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            interfaces=":010100:"
-        )
-    )
+    res = config.vm_for_device(USBInfo(interfaces=":010100:"))
     assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
+
 
 def test_audio_and_video() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            interfaces=":010100:0e0100:"
-        )
+    res = config.vm_for_device(USBInfo(interfaces=":010100:0e0100:"))
+    assert (
+        res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
     )
-    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
+
 
 def test_webcam() -> None:
     config = Config("config.json")
@@ -81,10 +70,13 @@ def test_webcam() -> None:
             pid="b751",
             vendor_name="Chicony_Electronics_Co._Ltd.",
             product_name="Integrated_Camera",
-            interfaces=":0e0100:0e0200:0e0101:0e0201:fe0101:"
+            interfaces=":0e0100:0e0200:0e0101:0e0201:fe0101:",
         )
     )
-    assert res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
+    assert (
+        res is not None and res.target_vm is None and res.allowed_vms == ["vm1", "vm2"]
+    )
+
 
 def test_ssd() -> None:
     config = Config("config.json")
@@ -94,10 +86,11 @@ def test_ssd() -> None:
             pid="61f5",
             vendor_name="Samsung",
             product_name="Portable_SSD_T5",
-            interfaces=":080650:080662:"
+            interfaces=":080650:080662:",
         )
     )
     assert res is None
+
 
 def test_hub() -> None:
     config = Config("config.json")
@@ -111,6 +104,7 @@ def test_hub() -> None:
         )
     )
     assert res is None
+
 
 def test_bluetooth() -> None:
     config = Config("config.json")
@@ -128,22 +122,14 @@ def test_bluetooth() -> None:
     )
     assert res is not None and res.target_vm == "vm2" and res.allowed_vms is None
 
+
 def test_bus_port() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            busnum=11,
-            ports=[22, 33, 44]
-        )
-    )
+    res = config.vm_for_device(USBInfo(busnum=11, ports=[22, 33, 44]))
     assert res is not None and res.target_vm == "vm2" and res.allowed_vms is None
+
 
 def test_wrong_bus_port() -> None:
     config = Config("config.json")
-    res = config.vm_for_device(
-        USBInfo(
-            busnum=11,
-            ports=[33, 22, 44]
-        )
-    )
+    res = config.vm_for_device(USBInfo(busnum=11, ports=[33, 22, 44]))
     assert res is None

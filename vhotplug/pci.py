@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vhotplug")
 
+
 class PCIInfo(NamedTuple):
     address: Optional[str] = None
     driver: Optional[str] = None
@@ -54,6 +55,7 @@ class PCIInfo(NamedTuple):
     def is_boot_device(self, _context: pyudev.Context) -> bool:
         return False
 
+
 def get_pci_info(device: pyudev.Device) -> PCIInfo:
     address = device.sys_name
     driver = device.driver
@@ -61,8 +63,12 @@ def get_pci_info(device: pyudev.Device) -> PCIInfo:
     vid, did = pci_id.split(":")
     vendor_id = int(vid, 16)
     device_id = int(did, 16)
-    vendor_name = device.properties.get("ID_VENDOR_FROM_DATABASE") or device.properties.get("ID_VENDOR")
-    device_name = device.properties.get("ID_MODEL_FROM_DATABASE") or device.properties.get("ID_MODEL")
+    vendor_name = device.properties.get(
+        "ID_VENDOR_FROM_DATABASE"
+    ) or device.properties.get("ID_VENDOR")
+    device_name = device.properties.get(
+        "ID_MODEL_FROM_DATABASE"
+    ) or device.properties.get("ID_MODEL")
     class_hex = int(device.properties.get("PCI_CLASS"), 16)
     pci_class = (class_hex >> 16) & 0xFF
     pci_subclass = (class_hex >> 8) & 0xFF
@@ -70,23 +76,42 @@ def get_pci_info(device: pyudev.Device) -> PCIInfo:
     pci_subsys_id = device.properties.get("PCI_SUBSYS_ID")
     pci_subsystem_vendor_id, pci_subsystem_id = pci_subsys_id.split(":")
 
-    return PCIInfo(address, driver, vendor_id, device_id, vid, did, vendor_name, device_name, pci_class, pci_subclass, pci_prog_if, pci_subsystem_vendor_id, pci_subsystem_id)
+    return PCIInfo(
+        address,
+        driver,
+        vendor_id,
+        device_id,
+        vid,
+        did,
+        vendor_name,
+        device_name,
+        pci_class,
+        pci_subclass,
+        pci_prog_if,
+        pci_subsystem_vendor_id,
+        pci_subsystem_id,
+    )
+
 
 def pci_info_by_address(app_context: "AppContext", address: str) -> PCIInfo | None:
-    for device in app_context.udev_context.list_devices(subsystem='pci'):
+    for device in app_context.udev_context.list_devices(subsystem="pci"):
         pci_info = get_pci_info(device)
         if pci_info.address == address:
             return pci_info
     return None
 
-def pci_info_by_vid_did(app_context: "AppContext", vid: int, did: int) -> PCIInfo | None:
-    for device in app_context.udev_context.list_devices(subsystem='pci'):
+
+def pci_info_by_vid_did(
+    app_context: "AppContext", vid: int, did: int
+) -> PCIInfo | None:
+    for device in app_context.udev_context.list_devices(subsystem="pci"):
         pci_info = get_pci_info(device)
         vid_match = pci_info.vendor_id and vid and pci_info.vendor_id == vid
         did_match = pci_info.device_id and did and pci_info.device_id == did
         if vid_match and did_match:
             return pci_info
     return None
+
 
 def _get_pci_driver(pci_address: str) -> str | None:
     """Returns PCI device driver name."""
@@ -95,6 +120,7 @@ def _get_pci_driver(pci_address: str) -> str | None:
     if os.path.islink(path):
         return os.path.basename(os.readlink(path))
     return None
+
 
 def _bind_vfio_pci(pci_address: str) -> None:
     """Checks the driver assigned for the device and changes it to vfio-pci."""
@@ -112,13 +138,19 @@ def _bind_vfio_pci(pci_address: str) -> None:
             try:
                 with open(f"{device_path}/driver/unbind", "w", encoding="utf-8") as f:
                     f.write(pci_address)
-                logger.debug("Successfully unbound %s driver from %s", driver, device_path)
+                logger.debug(
+                    "Successfully unbound %s driver from %s", driver, device_path
+                )
                 break
             except OSError as e:
-                logger.warning("Failed to unbind %s driver from %s: %s", driver, device_path, e)
+                logger.warning(
+                    "Failed to unbind %s driver from %s: %s", driver, device_path, e
+                )
             time.sleep(1)
         else:
-            logger.error("Failed to unbind %s from %s after 5 attempts", driver, device_path)
+            logger.error(
+                "Failed to unbind %s from %s after 5 attempts", driver, device_path
+            )
     else:
         logger.debug("Device %s has no driver assigned", pci_address)
 
@@ -130,6 +162,7 @@ def _bind_vfio_pci(pci_address: str) -> None:
         f.write(pci_address)
 
     logger.debug("Successfully bound vfio-pci driver for %s", pci_address)
+
 
 def get_iommu_group_devices(pci_address: str) -> list[str]:
     device_path = Path(f"/sys/bus/pci/devices/{pci_address}")
@@ -155,6 +188,7 @@ def get_iommu_group_devices(pci_address: str) -> list[str]:
             break
     return []
 
+
 def setup_vfio(pci_info: PCIInfo) -> None:
     """Checks PCI device IOMMU group and sets vfio-pci driver for all devices."""
 
@@ -170,6 +204,7 @@ def setup_vfio(pci_info: PCIInfo) -> None:
 
     except OSError as e:
         logger.error("Failed to setup VFIO for %s: %s", pci_info.address, e)
+
 
 def check_vfio() -> None:
     if not os.path.exists("/sys/module/vfio_pci"):

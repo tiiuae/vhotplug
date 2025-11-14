@@ -7,8 +7,17 @@ from vhotplugcli.apiclient import APIClient
 
 logger = logging.getLogger(__name__)
 
+
 # pylint: disable=too-many-positional-arguments
-def usb_attach(client: APIClient, devnode: str | None, bus: int | None, port: int | None, vid: str | None, pid: str | None, vm: str) -> None:
+def usb_attach(
+    client: APIClient,
+    devnode: str | None,
+    bus: int | None,
+    port: int | None,
+    vid: str | None,
+    pid: str | None,
+    vm: str,
+) -> None:
     if not devnode and not (bus and port) and not (vid and pid):
         raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
 
@@ -25,7 +34,15 @@ def usb_attach(client: APIClient, devnode: str | None, bus: int | None, port: in
         raise RuntimeError(f"Failed to attach USB: {res.get('error')}")
     logger.info("Successfully attached")
 
-def usb_detach(client: APIClient, devnode: str | None, bus: int | None, port: int | None, vid: str | None, pid: str | None) -> None:
+
+def usb_detach(
+    client: APIClient,
+    devnode: str | None,
+    bus: int | None,
+    port: int | None,
+    vid: str | None,
+    pid: str | None,
+) -> None:
     if not devnode and not (bus and port) and not (vid and pid):
         raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
 
@@ -42,6 +59,7 @@ def usb_detach(client: APIClient, devnode: str | None, bus: int | None, port: in
         raise RuntimeError(f"Failed to detach USB: {res.get('error')}")
     logger.info("Successfully detached")
 
+
 def usb_list(client: APIClient) -> None:
     client.connect()
     res = client.usb_list()
@@ -54,12 +72,14 @@ def usb_list(client: APIClient) -> None:
             print(f"  {key:<16}: {value}")
         print()
 
+
 def usb_suspend(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.usb_suspend(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to suspend USB: {res.get('error')}")
     logger.info("Successfully suspended")
+
 
 def usb_resume(client: APIClient, vm: str) -> None:
     client.connect()
@@ -68,9 +88,11 @@ def usb_resume(client: APIClient, vm: str) -> None:
         raise RuntimeError(f"Failed to resume USB: {res.get('error')}")
     logger.info("Successfully resumed")
 
+
 def listen_for_notifications(client: APIClient) -> None:
     logger.info("Listening for notifications")
     client.recv_notifications(callback=logger.info)
+
 
 def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str | None, vm: str) -> None:
     if not address and not (vid and did):
@@ -87,7 +109,10 @@ def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str
         raise RuntimeError(f"Failed to attach PCI: {res.get('error')}")
     logger.info("Successfully attached")
 
-def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str | None) -> None:
+
+def pci_detach(
+    client: APIClient, address: str | None, vid: str | None, did: str | None
+) -> None:
     if not address and not (vid and did):
         raise RuntimeError("You must specify either --address or --vid and --did")
 
@@ -102,6 +127,7 @@ def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str
         raise RuntimeError(f"Failed to detach PCI: {res.get('error')}")
     logger.info("Successfully detached")
 
+
 def pci_list(client: APIClient) -> None:
     client.connect()
     res = client.pci_list()
@@ -114,6 +140,7 @@ def pci_list(client: APIClient) -> None:
             print(f"  {key:<16}: {value}")
         print()
 
+
 def pci_suspend(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.pci_suspend(vm)
@@ -121,12 +148,14 @@ def pci_suspend(client: APIClient, vm: str) -> None:
         raise RuntimeError(f"Failed to suspend PCI: {res.get('error')}")
     logger.info("Successfully suspended")
 
+
 def pci_resume(client: APIClient, vm: str) -> None:
     client.connect()
     res = client.pci_resume(vm)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to resume PCI: {res.get('error')}")
     logger.info("Successfully resumed")
+
 
 def running_in_vm() -> bool:
     try:
@@ -139,16 +168,47 @@ def running_in_vm() -> bool:
     except OSError:
         return False
 
+
 # pylint: disable=too-many-locals,too-many-statements
 def main() -> int:
     parser = argparse.ArgumentParser(prog="vhotplugcli", description="CLI tool for managing virtual hotplug devices")
 
-    parser.add_argument("-d", "--debug", default=False, action=argparse.BooleanOptionalAction, help="Enable debug messages",)
-    parser.add_argument("-t", "--transport", choices=["unix", "tcp", "vsock"], help="Transport type (default: vsock when running in a VM, otherwise unix)")
-    parser.add_argument("-u", "--path", default="/var/lib/vhotplug/vhotplug.sock", help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)")
-    parser.add_argument("-s", "--host", default="127.0.0.1", help="TCP host (default: 127.0.0.1)")
-    parser.add_argument("-p", "--net-port", type=int, default=2000, help="TCP or VSOCK port (default: 2000)")
-    parser.add_argument("-c", "--cid", type=int, default=socket.VMADDR_CID_HOST, help="VSOCK CID (default: VMADDR_CID_HOST = 2)")
+    parser.add_argument(
+        "-d",
+        "--debug",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Enable debug messages",
+    )
+    parser.add_argument(
+        "-t",
+        "--transport",
+        choices=["unix", "tcp", "vsock"],
+        help="Transport type (default: vsock when running in a VM, otherwise unix)",
+    )
+    parser.add_argument(
+        "-u",
+        "--path",
+        default="/var/lib/vhotplug/vhotplug.sock",
+        help="Path to Unix socket (default: /var/lib/vhotplug/vhotplug.sock)",
+    )
+    parser.add_argument(
+        "-s", "--host", default="127.0.0.1", help="TCP host (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "-p",
+        "--net-port",
+        type=int,
+        default=2000,
+        help="TCP or VSOCK port (default: 2000)",
+    )
+    parser.add_argument(
+        "-c",
+        "--cid",
+        type=int,
+        default=socket.VMADDR_CID_HOST,
+        help="VSOCK CID (default: VMADDR_CID_HOST = 2)",
+    )
 
     subparsers = parser.add_subparsers(dest="subsystem", required=True)
 
@@ -156,7 +216,9 @@ def main() -> int:
     usb_sub = usb_parser.add_subparsers(dest="action", required=True)
 
     usb_attach_parser = usb_sub.add_parser("attach", help="Attach USB device")
-    usb_attach_parser.add_argument("--devnode", help="Path to USB device node (/dev/bus/usb/...)")
+    usb_attach_parser.add_argument(
+        "--devnode", help="Path to USB device node (/dev/bus/usb/...)"
+    )
     usb_attach_parser.add_argument("--bus", type=int, help="USB bus")
     usb_attach_parser.add_argument("--port", type=int, help="USB port")
     usb_attach_parser.add_argument("--vid", help="USB Vendor ID")
@@ -165,7 +227,9 @@ def main() -> int:
     usb_attach_parser.set_defaults(func=lambda a, c: usb_attach(c, a.devnode, a.bus, a.port, a.vid, a.pid, a.vm))
 
     usb_detach_parser = usb_sub.add_parser("detach", help="Detach USB device")
-    usb_detach_parser.add_argument("--devnode", help="Path to USB device node (/dev/bus/usb/...)")
+    usb_detach_parser.add_argument(
+        "--devnode", help="Path to USB device node (/dev/bus/usb/...)"
+    )
     usb_detach_parser.add_argument("--bus", type=int, help="USB bus")
     usb_detach_parser.add_argument("--port", type=int, help="USB port")
     usb_detach_parser.add_argument("--vid", help="USB Vendor ID")
@@ -194,13 +258,17 @@ def main() -> int:
     pci_attach_parser.add_argument("--vid", help="USB Vendor ID")
     pci_attach_parser.add_argument("--did", help="USB Device ID")
     pci_attach_parser.add_argument("--vm", help="Virtual machine name")
-    pci_attach_parser.set_defaults(func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm))
+    pci_attach_parser.set_defaults(
+        func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm)
+    )
 
     pci_detach_parser = pci_sub.add_parser("detach", help="Detach PCI device")
     pci_detach_parser.add_argument("--address", help="PCI Address (e.g., 0000:00:01.0)")
     pci_detach_parser.add_argument("--vid", help="PCI Vendor ID")
     pci_detach_parser.add_argument("--did", help="PCI Device ID")
-    pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did))
+    pci_detach_parser.set_defaults(
+        func=lambda a, c: pci_detach(c, a.address, a.vid, a.did)
+    )
 
     usb_list_parser = pci_sub.add_parser("list", help="Get PCI list")
     usb_list_parser.set_defaults(func=lambda a, c: pci_list(c))
@@ -225,7 +293,13 @@ def main() -> int:
 
     try:
         transport = args.transport or ("vsock" if running_in_vm() else "unix")
-        client = APIClient(transport=transport, path=args.path, host=args.host, port=args.net_port, cid=args.cid)
+        client = APIClient(
+            transport=transport,
+            path=args.path,
+            host=args.host,
+            port=args.net_port,
+            cid=args.cid,
+        )
         args.func(args, client)
     except (RuntimeError, ValueError, OSError) as e:
         logger.error(str(e))

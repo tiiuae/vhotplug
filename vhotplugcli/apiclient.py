@@ -7,10 +7,18 @@ from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
+
 # pylint: disable=too-many-public-methods
 class APIClient:
     # pylint: disable=too-many-positional-arguments
-    def __init__(self, host: str = "127.0.0.1", port: int = 2000, cid: int = 2, transport: str = "vsock", path: str = "/var/lib/vhotplug/vhotplug.sock") -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 2000,
+        cid: int = 2,
+        transport: str = "vsock",
+        path: str = "/var/lib/vhotplug/vhotplug.sock",
+    ) -> None:
         self.transport = transport
         self.host = host
         self.port = port
@@ -33,14 +41,18 @@ class APIClient:
                 if not self.cid or not self.port:
                     raise ValueError("VSOCK CID and port are required")
 
-                logger.debug("Connecting to vsock cid %s on port %s", self.cid, self.port)
+                logger.debug(
+                    "Connecting to vsock cid %s on port %s", self.cid, self.port
+                )
                 self.sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
                 self.sock.connect((self.cid, self.port))
             elif self.transport == "tcp":
                 if not self.host or not self.port:
                     raise ValueError("TCP host and port are required")
 
-                logger.debug("Connecting to tcp host %s on port %s", self.host, self.port)
+                logger.debug(
+                    "Connecting to tcp host %s on port %s", self.host, self.port
+                )
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.connect((self.host, self.port))
             elif self.transport == "unix":
@@ -152,7 +164,9 @@ class APIClient:
                 while True:
                     data = client.sock.recv(4096)
                     if not data:
-                        raise ConnectionError("API connection for notifications closed by remote")
+                        raise ConnectionError(
+                            "API connection for notifications closed by remote"
+                        )
                     buffer += data.decode("utf-8")
                     while "\n" in buffer:
                         msg, buffer = buffer.split("\n", 1)

@@ -7,6 +7,7 @@ from vhotplug.pci import PCIInfo
 
 logger = logging.getLogger("vhotplug")
 
+
 class DeviceState:
     def __init__(self, persistent: bool = False, db_path: str | None = None) -> None:
         self.persistent = persistent
