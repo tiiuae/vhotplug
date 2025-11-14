@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import subprocess
 
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
@@ -48,29 +47,32 @@ class CrosvmLink:
                         )
                         return
 
-                result = subprocess.run(
-                    [
-                        self.crosvm_bin,
-                        "usb",
-                        "attach",
-                        "00:00:00:00",
-                        dev_node,
-                        self.socket_path,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                proc = await asyncio.create_subprocess_exec(
+                    self.crosvm_bin,
+                    "usb",
+                    "attach",
+                    "00:00:00:00",
+                    dev_node,
+                    self.socket_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                if result.returncode != 0:
+                stdout_bytes, stderr_bytes = await proc.communicate()
+                assert stdout_bytes is not None
+                assert stderr_bytes is not None
+                stdout_str = stdout_bytes.decode()
+                stderr_str = stderr_bytes.decode()
+
+                if proc.returncode != 0:
                     logger.warning(
                         "Failed to add device %s, error code: %s",
                         dev_node,
-                        result.returncode,
+                        proc.returncode,
                     )
-                    logger.warning("Out: %s", result.stdout)
-                    logger.warning("Err: %s", result.stderr)
+                    logger.warning("Out: %s", stdout_str)
+                    logger.warning("Err: %s", stderr_str)
                 else:
-                    r = result.stdout.split()
+                    r = stdout_str.split()
                     if r[0] == "ok":
                         logger.info("Attached USB device %s, id: %s", dev_node, r[1])
                         return
@@ -86,8 +88,8 @@ class CrosvmLink:
                             await self.remove_usb_device_by_id(index)
                     else:
                         logger.warning("Unexpected result: %s", r[0])
-                        logger.warning("Out: %s", result.stdout)
-                        logger.warning("Err: %s", result.stderr)
+                        logger.warning("Out: %s", stdout_str)
+                        logger.warning("Err: %s", stderr_str)
             except OSError as e:
                 logger.warning("Failed to attach USB device %s: %s", dev_node, e)
 
@@ -103,22 +105,31 @@ class CrosvmLink:
     async def remove_usb_device_by_id(self, dev_id: int) -> None:
         try:
             logger.info("Detaching USB device %s from %s", dev_id, self.socket_path)
-            result = subprocess.run(
-                [self.crosvm_bin, "usb", "detach", str(dev_id), self.socket_path],
-                capture_output=True,
-                text=True,
-                check=False,
+            proc = await asyncio.create_subprocess_exec(
+                self.crosvm_bin,
+                "usb",
+                "detach",
+                str(dev_id),
+                self.socket_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode != 0:
-                logger.error("Failed to detach USB device, error code: %s", result.returncode)
-                logger.error("Out: %s", result.stdout)
-                logger.error("Err: %s", result.stderr)
-                raise RuntimeError(result.returncode)
-            r = result.stdout.split()
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            assert stdout_bytes is not None
+            assert stderr_bytes is not None
+            stdout_str = stdout_bytes.decode()
+            stderr_str = stderr_bytes.decode()
+
+            if proc.returncode != 0:
+                logger.error("Failed to detach USB device, error code: %s", proc.returncode)
+                logger.error("Out: %s", stdout_str)
+                logger.error("Err: %s", stderr_str)
+                raise RuntimeError(proc.returncode)
+            r = stdout_str.split()
             if r[0] != "ok":
                 logger.error("Unexpected result: %s", r[0])
-                logger.error("Out: %s", result.stdout)
-                logger.error("Err: %s", result.stderr)
+                logger.error("Out: %s", stdout_str)
+                logger.error("Err: %s", stderr_str)
                 raise RuntimeError(r[0])
             logger.info("Detached USB device %s", dev_id)
             return
@@ -130,22 +141,30 @@ class CrosvmLink:
         devices: list[tuple[int, str, str]] = []
         try:
             logger.debug("Getting a list of USB devices from %s", self.socket_path)
-            result = subprocess.run(
-                [self.crosvm_bin, "usb", "list", self.socket_path],
-                capture_output=True,
-                text=True,
-                check=False,
+            proc = await asyncio.create_subprocess_exec(
+                self.crosvm_bin,
+                "usb",
+                "list",
+                self.socket_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode != 0:
-                logger.error("Failed to get USB list, error code: %s", result.returncode)
-                logger.error("Out: %s", result.stdout)
-                logger.error("Err: %s", result.stderr)
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            assert stdout_bytes is not None
+            assert stderr_bytes is not None
+            stdout_str = stdout_bytes.decode()
+            stderr_str = stderr_bytes.decode()
+
+            if proc.returncode != 0:
+                logger.error("Failed to get USB list, error code: %s", proc.returncode)
+                logger.error("Out: %s", stdout_str)
+                logger.error("Err: %s", stderr_str)
             else:
-                r = result.stdout.split()
+                r = stdout_str.split()
                 if r[0] != "devices":
                     logger.error("Unexpected result: %s", r[0])
-                    logger.error("Out: %s", result.stdout)
-                    logger.error("Err: %s", result.stderr)
+                    logger.error("Out: %s", stdout_str)
+                    logger.error("Err: %s", stderr_str)
                 else:
                     data = r[1:]
                     for i in range(0, len(data), 3):
