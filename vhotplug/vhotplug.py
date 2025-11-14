@@ -60,8 +60,8 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
 
             try:
                 await attach_device(app_context, usb_info, True)
-            except RuntimeError as e:
-                logger.exception("Failed to attach device %s: %s", device.device_node, e)
+            except RuntimeError:
+                logger.exception("Failed to attach device %s", device.device_node)
 
     elif device.action == "remove":
         logger.debug("Device unplugged: %s", device.sys_name)
@@ -72,8 +72,8 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
             logger.info("USB device disconnected: %s", device.device_node)
             try:
                 await remove_device(app_context, usb_info)
-            except RuntimeError as e:
-                logger.exception("Failed to detach device %s: %s", device.device_node, e)
+            except RuntimeError:
+                logger.exception("Failed to detach device %s", device.device_node)
 
             # Notify that USB device is disconnected from host
             if app_context.api_server:

@@ -256,8 +256,8 @@ class Config:
                         pci_iommu_skip_if_shared,
                     )
 
-        except (AttributeError, TypeError) as e:
-            logger.exception("Failed to find VM for device in the configuration file: %s", e)
+        except (AttributeError, TypeError):
+            logger.exception("Failed to find VM for device in the configuration file")
         return None
 
     def vm_for_evdev_devices(self) -> dict[str, Any] | None:
@@ -267,8 +267,8 @@ class Config:
                 vm_name = evdev.get("targetVm")
                 logger.debug("Found VM %s for evdev passthrough", vm_name)
                 return self.get_vm(vm_name)
-        except (AttributeError, TypeError) as e:
-            logger.exception("Failed to find VM for evdev device in the configuration file: %s", e)
+        except (AttributeError, TypeError):
+            logger.exception("Failed to find VM for evdev device in the configuration file")
         return None
 
     def get_all_vms(self) -> list[dict[str, Any]]:

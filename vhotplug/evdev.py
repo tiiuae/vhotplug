@@ -91,5 +91,5 @@ async def attach_connected_evdev(app_context: "AppContext") -> None:
             else:
                 try:
                     await attach_evdev_device(vm, device)
-                except RuntimeError as e:
-                    logger.exception("Failed to attach evdev device %s: %s", name, e)
+                except RuntimeError:
+                    logger.exception("Failed to attach evdev device %s", name)

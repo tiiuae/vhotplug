@@ -187,8 +187,8 @@ def setup_vfio(pci_info: PCIInfo) -> None:
             logger.debug(" - %s", dev)
             _bind_vfio_pci(dev)
 
-    except OSError as e:
-        logger.exception("Failed to setup VFIO for %s: %s", pci_info.address, e)
+    except OSError:
+        logger.exception("Failed to setup VFIO for %s", pci_info.address)
 
 
 def check_vfio() -> None:
