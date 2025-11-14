@@ -44,7 +44,7 @@ def get_evdev_name(device: pyudev.Device) -> str | None:
 
 async def test_grab(device: pyudev.Device) -> bool:
     """Tries to grab a device to see if it's already attached to a VM."""
-    with open(device.device_node, "wb") as dev:
+    with open(device.device_node, "wb") as dev:  # noqa: ASYNC230
         try:
             fcntl.ioctl(dev, EVIOCGRAB, struct.pack("i", 1))
         except OSError as e:
