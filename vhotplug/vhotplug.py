@@ -2,11 +2,11 @@ import argparse
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
 
 import pyudev
 
 from vhotplug.apiserver import APIServer
+from vhotplug.appcontext import AppContext
 from vhotplug.config import Config
 from vhotplug.device import (
     attach_connected_pci,
@@ -24,15 +24,6 @@ from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
 
 logger = logging.getLogger("vhotplug")
-
-
-@dataclass
-class AppContext:
-    config: Config
-    udev_monitor: pyudev.Monitor
-    udev_context: pyudev.Context
-    dev_state: DeviceState
-    api_server: APIServer | None = None
 
 
 async def device_event(app_context: AppContext, device: pyudev.Device) -> None:

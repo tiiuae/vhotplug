@@ -5,8 +5,9 @@ import os
 import socket
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from vhotplug.appcontext import AppContext
 from vhotplug.device import (
     attach_connected_pci,
     attach_connected_usb,
@@ -28,14 +29,11 @@ from vhotplug.device import (
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
 
-if TYPE_CHECKING:
-    from vhotplug.vhotplug import AppContext
-
 logger = logging.getLogger("vhotplug")
 
 
 class APIServer:
-    def __init__(self, app_context: "AppContext", loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, app_context: AppContext, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self.app_context = app_context
         api_config = self.app_context.config.config.get("general", {}).get("api", {})

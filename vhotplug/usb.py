@@ -1,11 +1,10 @@
 import logging
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 
 import psutil
 import pyudev
 
-if TYPE_CHECKING:
-    from vhotplug.vhotplug import AppContext
+from vhotplug.appcontext import AppContext
 
 logger = logging.getLogger("vhotplug")
 
@@ -177,14 +176,14 @@ def find_usb_parent(device: pyudev.Device) -> pyudev.Device | None:
     return device.find_parent(subsystem="usb", device_type="usb_device")
 
 
-def usb_device_by_node(app_context: "AppContext", device_node: str) -> pyudev.Device | None:
+def usb_device_by_node(app_context: AppContext, device_node: str) -> pyudev.Device | None:
     try:
         return pyudev.Devices.from_device_file(app_context.udev_context, device_node)
     except pyudev.DeviceNotFoundError:
         return None
 
 
-def usb_device_by_bus_port(app_context: "AppContext", bus: int, port: int) -> pyudev.Device | None:
+def usb_device_by_bus_port(app_context: AppContext, bus: int, port: int) -> pyudev.Device | None:
     for device in app_context.udev_context.list_devices(subsystem="usb"):
         if is_usb_device(device):
             usb_info = get_usb_info(device)
@@ -193,7 +192,7 @@ def usb_device_by_bus_port(app_context: "AppContext", bus: int, port: int) -> py
     return None
 
 
-def usb_device_by_vid_pid(app_context: "AppContext", vid: str, pid: str) -> pyudev.Device | None:
+def usb_device_by_vid_pid(app_context: AppContext, vid: str, pid: str) -> pyudev.Device | None:
     for device in app_context.udev_context.list_devices(subsystem="usb"):
         if is_usb_device(device):
             usb_info = get_usb_info(device)

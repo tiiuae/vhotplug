@@ -1,15 +1,12 @@
 import fcntl
 import logging
 import struct
-from typing import TYPE_CHECKING
 
 import pyudev
 
+from vhotplug.appcontext import AppContext
 from vhotplug.device import log_device
 from vhotplug.qemulink import QEMULink
-
-if TYPE_CHECKING:
-    from vhotplug.vhotplug import AppContext
 
 # Constants from Linux kernel source code
 EVIOCGRAB = 0x40044590
@@ -67,7 +64,7 @@ async def attach_evdev_device(vm: dict[str, str], device: pyudev.Device) -> None
     await qemu.add_evdev_device(device)
 
 
-async def attach_connected_evdev(app_context: "AppContext") -> None:
+async def attach_connected_evdev(app_context: AppContext) -> None:
     """Finds all non-USB evdev devices and attaches them to the selected VM."""
     vm = app_context.config.vm_for_evdev_devices()
     if vm is None:

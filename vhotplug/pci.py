@@ -2,12 +2,11 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 
 import pyudev
 
-if TYPE_CHECKING:
-    from vhotplug.vhotplug import AppContext
+from vhotplug.appcontext import AppContext
 
 logger = logging.getLogger("vhotplug")
 
@@ -90,7 +89,7 @@ def get_pci_info(device: pyudev.Device) -> PCIInfo:
     )
 
 
-def pci_info_by_address(app_context: "AppContext", address: str) -> PCIInfo | None:
+def pci_info_by_address(app_context: AppContext, address: str) -> PCIInfo | None:
     for device in app_context.udev_context.list_devices(subsystem="pci"):
         pci_info = get_pci_info(device)
         if pci_info.address == address:
@@ -98,7 +97,7 @@ def pci_info_by_address(app_context: "AppContext", address: str) -> PCIInfo | No
     return None
 
 
-def pci_info_by_vid_did(app_context: "AppContext", vid: int, did: int) -> PCIInfo | None:
+def pci_info_by_vid_did(app_context: AppContext, vid: int, did: int) -> PCIInfo | None:
     for device in app_context.udev_context.list_devices(subsystem="pci"):
         pci_info = get_pci_info(device)
         vid_match = pci_info.vendor_id and vid and pci_info.vendor_id == vid

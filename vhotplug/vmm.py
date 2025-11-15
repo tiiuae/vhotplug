@@ -1,6 +1,6 @@
 import logging
-from typing import TYPE_CHECKING
 
+from vhotplug.appcontext import AppContext
 from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.pci import PCIInfo
 from vhotplug.qemulink import QEMULink
@@ -8,18 +8,14 @@ from vhotplug.usb import USBInfo
 
 logger = logging.getLogger("vhotplug")
 
-# TYPE_CHECKING to avoid circular import
-if TYPE_CHECKING:
-    from vhotplug.vhotplug import AppContext
 
-
-def _get_crosvm_bin(app_context: "AppContext") -> str | None:
+def _get_crosvm_bin(app_context: AppContext) -> str | None:
     """Returns a path to crosvm binary from config or None."""
     crosvm_bin = app_context.config.config.get("general", {}).get("crosvm")
     return crosvm_bin if isinstance(crosvm_bin, str) else None
 
 
-async def vmm_add_device(app_context: "AppContext", vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
     """Attaches a device to the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -43,7 +39,7 @@ async def vmm_add_device(app_context: "AppContext", vm: dict[str, str], dev_info
         raise RuntimeError(f"Unknown VM type: {vm_type}")
 
 
-async def vmm_remove_device(app_context: "AppContext", vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_remove_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
     """Removes a device from the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
