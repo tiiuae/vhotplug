@@ -29,7 +29,12 @@
         "aarch64-darwin"
       ];
 
-      flake.nixosModules.default = ./nix/nixos-module.nix;
+      flake = {
+        nixosModules.default = ./nix/nixos-module.nix;
+        overlays.default = _final: prev: {
+          vhotplug = self.packages.${prev.stdenv.hostPlatform.system}.default;
+        };
+      };
 
       perSystem =
         {

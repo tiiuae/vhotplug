@@ -30,5 +30,6 @@ python3Packages.buildPythonApplication {
     license = licenses.asl20;
     platforms = platforms.linux;
     maintainers = [ ];
+    mainProgram = "vhotplug";
   };
 }
