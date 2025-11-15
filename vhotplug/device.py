@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import pyudev
 
 from vhotplug.config import PassthroughInfo
-from vhotplug.crosvmlink import CrosvmLink
 from vhotplug.pci import (
     PCIInfo,
     get_iommu_group_devices,
@@ -13,7 +12,6 @@ from vhotplug.pci import (
     pci_info_by_vid_did,
     setup_vfio,
 )
-from vhotplug.qemulink import QEMULink
 from vhotplug.usb import (
     USBInfo,
     get_usb_info,
@@ -23,6 +21,7 @@ from vhotplug.usb import (
     usb_device_by_node,
     usb_device_by_vid_pid,
 )
+from vhotplug.vmm import vmm_add_device, vmm_pause, vmm_remove_device, vmm_resume
 
 # TYPE_CHECKING to avoid circular import
 if TYPE_CHECKING:
@@ -91,6 +90,40 @@ async def find_vm_for_device(app_context: "AppContext", dev_info: USBInfo | PCII
     return res
 
 
+async def _attach_iommu_group(app_context: "AppContext", devices: list[str], vm: dict[str, str]) -> None:
+    """Attaches all devices from the same IOMMU group."""
+    logger.info("Adding all devices from IOMMU group (total: %s)", len(devices))
+
+    # Attach all devices to the VM
+    vm_name = vm.get("name", "")
+    vm_paused = False
+    try:
+        for dev_addr in devices:
+            pci_info = pci_info_by_address(app_context, dev_addr)
+            if pci_info:
+                current_vm = app_context.dev_state.get_vm_for_device(pci_info)
+                if current_vm:
+                    if current_vm != vm_name:
+                        logger.warning(
+                            "Device %s already attached to a different vm: %s (target vm: %s)",
+                            pci_info.friendly_name(),
+                            current_vm,
+                            vm_name,
+                        )
+                    else:
+                        continue
+
+                if not vm_paused:
+                    await vmm_pause(vm)
+                    vm_paused = True
+                await _attach_device_to_vm(app_context, pci_info, vm)
+            else:
+                logger.error("Device %s not found", dev_addr)
+    finally:
+        if vm_paused:
+            await vmm_resume(vm)
+
+
 async def attach_device(
     app_context: "AppContext",
     passthrough_info: PassthroughInfo,
@@ -127,6 +160,11 @@ async def attach_device(
         )
         return
 
+    # Get VM details from the config
+    vm = app_context.config.get_vm(target_vm)
+    if not vm:
+        raise RuntimeError(f"VM {target_vm} is not found in the config file")
+
     # For PCI devices, check IOMMU group
     if isinstance(dev_info, PCIInfo):
         assert dev_info.address is not None, "PCI address cannot be None"
@@ -137,22 +175,10 @@ async def attach_device(
                 logger.info("Skipping device since it shares IOMMU group with other devices (total: %s)", len(devices))
                 return
             if passthrough_info.pci_iommu_add_all:
-                logger.info("Adding other devices from IOMMU group first (total: %s)", len(devices) - 1)
-                for address in devices:
-                    if address != dev_info.address:
-                        pci_info = pci_info_by_address(app_context, address)
-                        if pci_info:
-                            iommu_dev_vm = app_context.dev_state.get_vm_for_device(pci_info)
-                            if iommu_dev_vm and iommu_dev_vm != target_vm:
-                                logger.warning(
-                                    "Device %s already attached to a different vm: %s",
-                                    dev_info.friendly_name(),
-                                    iommu_dev_vm,
-                                )
-                            else:
-                                await _attach_device_to_vm(app_context, pci_info, target_vm)
+                await _attach_iommu_group(app_context, devices, vm)
+                return
 
-    await _attach_device_to_vm(app_context, dev_info, target_vm)
+    await _attach_device_to_vm(app_context, dev_info, vm)
 
 
 async def _attach_existing_device(
@@ -186,17 +212,18 @@ async def _attach_existing_device(
             # Try to select the last used VM from the state database or fall back to the first one in the list
             target_vm = _autoselect_vm(app_context, dev_info, res.allowed_vms)
 
-    # Attach device to the VM
-    await _attach_device_to_vm(app_context, dev_info, target_vm)
-
-
-async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, vm_name: str) -> None:
-    """Gets VM details and attaches a device."""
     # Get VM details from the config
-    vm = app_context.config.get_vm(vm_name)
+    vm = app_context.config.get_vm(target_vm)
     if not vm:
-        raise RuntimeError(f"VM {vm_name} is not found in the config file")
+        raise RuntimeError(f"VM {target_vm} is not found in the config file")
 
+    # Attach device to the VM
+    await _attach_device_to_vm(app_context, dev_info, vm)
+
+
+async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, vm: dict[str, str]) -> None:
+    """Gets VM details and attaches a device."""
+    vm_name = vm.get("name", "")
     logger.info("Attaching %s to %s", dev_info.friendly_name(), vm_name)
 
     # Check if the device is attached to a different VM and remove
@@ -213,24 +240,7 @@ async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PC
         setup_vfio(dev_info)
 
     # Attach device to the VM
-    vm_type = vm.get("type")
-    vm_socket = vm.get("socket")
-    assert vm_socket is not None, "VM socket must be set"
-    if vm_type == "qemu":
-        qemu = QEMULink(vm_socket)
-        if isinstance(dev_info, USBInfo):
-            # await qemu.add_usb_device_by_vid_pid(usb_info)
-            await qemu.add_usb_device(dev_info)
-        else:
-            await qemu.add_pci_device(dev_info)
-    elif vm_type == "crosvm":
-        crosvm = CrosvmLink(vm_socket, app_context.config.config.get("general", {}).get("crosvm"))
-        if isinstance(dev_info, USBInfo):
-            await crosvm.add_usb_device(dev_info)
-        else:
-            await crosvm.add_pci_device(dev_info)
-    else:
-        raise RuntimeError(f"Unknown VM type: {vm_type}")
+    await vmm_add_device(app_context, vm, dev_info)
 
     # Add selected VM to the state database
     app_context.dev_state.set_vm_for_device(dev_info, vm_name)
@@ -238,6 +248,34 @@ async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PC
 
     if app_context.api_server:
         app_context.api_server.notify_dev_attached(dev_info, vm_name)
+
+
+async def _remove_iommu_group(app_context: "AppContext", devices: list[str], vm: dict[str, str]) -> None:
+    """Removes all devices from the same IOMMU group."""
+    logger.info("Removing devices from IOMMU group (total: %s)", len(devices))
+
+    # Remove all devices from the VM
+    vm_name = vm.get("name")
+    vm_paused = False
+    try:
+        for dev_addr in devices:
+            pci_info = pci_info_by_address(app_context, dev_addr)
+            if pci_info:
+                current_vm = app_context.dev_state.get_vm_for_device(pci_info)
+                if current_vm and current_vm != vm_name:
+                    logger.warning(
+                        "Device %s in the same IOMMU group attached to a different vm: %s",
+                        pci_info.friendly_name(),
+                        pci_info,
+                    )
+                else:
+                    if not vm_paused:
+                        await vmm_pause(vm)
+                        vm_paused = True
+                    await _remove_device_from_vm(app_context, pci_info, vm)
+    finally:
+        if vm_paused:
+            await vmm_resume(vm)
 
 
 async def remove_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo) -> None:
@@ -269,58 +307,23 @@ async def remove_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo) 
                 logger.info("Skipping device since it shares IOMMU group with other devices (total: %s)", len(devices))
                 return
             if res.pci_iommu_add_all:
-                logger.info("Removing other devices from IOMMU group first (total: %s)", len(devices) - 1)
-                for address in devices:
-                    if address != dev_info.address:
-                        pci_info = pci_info_by_address(app_context, address)
-                        if pci_info:
-                            iommu_dev_vm = app_context.dev_state.get_vm_for_device(pci_info)
-                            if iommu_dev_vm and iommu_dev_vm != current_vm_name:
-                                logger.warning(
-                                    "Device %s in the same IOMMU group attached to a different vm: %s",
-                                    dev_info.friendly_name(),
-                                    current_vm_name,
-                                )
-                            else:
-                                await _remove_device_from_vm(app_context, pci_info, vm)
+                await _remove_iommu_group(app_context, devices, vm)
+                return
 
     await _remove_device_from_vm(app_context, dev_info, vm)
 
 
 async def _remove_device_from_vm(app_context: "AppContext", dev_info: USBInfo | PCIInfo, vm: dict[str, str]) -> None:
-    """Removes device from VM."""
-    vm_name = vm.get("name")
-    assert vm_name is not None, "VM name must be set"
-    vm_type = vm.get("type")
-    vm_socket = vm.get("socket")
-    assert vm_socket is not None, "VM socket must be set"
-    if vm_type == "qemu":
-        qemu = QEMULink(vm_socket)
-        if isinstance(dev_info, USBInfo):
-            await qemu.remove_usb_device(dev_info)
-        else:
-            # Here we can detach the device by its QEMU ID if vhotplug manages all devices.
-            # This would be the most efficient and simple method but it won't work if the device was attached by something else since we don't know the QEMU ID.
-            # await qemu.remove_pci_device(dev_info)
-            # This method searches for a device by enumerating guest PCI devices and comparing the vendor ID and device ID.
-            # It is less efficient but allows support for devices that were added via QEMU command line or by another manager.
-            await qemu.remove_pci_device_by_vid_did(dev_info)
-
-    elif vm_type == "crosvm":
-        # Crosvm seems to automatically remove the device from the list so this code is not really used
-        crosvm = CrosvmLink(vm_socket, app_context.config.config.get("crosvm"))
-        if isinstance(dev_info, USBInfo):
-            await crosvm.remove_usb_device(dev_info)
-        else:
-            await crosvm.remove_pci_device(dev_info)
-    else:
-        raise RuntimeError(f"Unsupported vm type: {vm_type}")
+    """Removes device from VM, saves its state and sends a notification."""
+    # Remove from VM
+    await vmm_remove_device(app_context, vm, dev_info)
 
     # Remove it from the state database
     app_context.dev_state.remove_vm_for_device(dev_info)
 
+    # Send a notification
     if app_context.api_server:
-        app_context.api_server.notify_dev_detached(dev_info, vm_name)
+        app_context.api_server.notify_dev_detached(dev_info, vm.get("name", ""))
 
 
 async def _remove_existing_device(

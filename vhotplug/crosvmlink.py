@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import socket
 
+from vhotplug.misc import wait_for_unix_socket
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
-from vhotplug.vmm import wait_for_boot_crosvm
 
 logger = logging.getLogger("vhotplug")
 
@@ -21,12 +22,18 @@ class CrosvmLink:
         else:
             self.crosvm_bin = "crosvm"
 
+    def _wait_for_boot(self) -> bool:
+        """Waits for a crosvm vm to boot."""
+        return wait_for_unix_socket(
+            self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot, socket.SOCK_SEQPACKET
+        )
+
     async def add_usb_device(self, usb_info: USBInfo) -> None:
         dev_node = usb_info.device_node
         assert dev_node is not None, "Device node must be set"
 
         # Crosvm requires the kernel to be booted before USB devices can be passed through
-        if not wait_for_boot_crosvm(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot):
+        if not self._wait_for_boot():
             logger.warning("VM is not booted while adding device %s", dev_node)
 
         i = 0
