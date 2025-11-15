@@ -50,7 +50,6 @@ class Config:
         except (ValueError, TypeError):
             return None
 
-    # pylint: disable = too-many-locals, too-many-return-statements
     def _match_usb(self, dev_info: USBInfo | PCIInfo, usb_rule: dict[str, Any]) -> bool:
         if not isinstance(dev_info, USBInfo):
             return False

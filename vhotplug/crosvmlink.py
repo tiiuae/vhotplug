@@ -21,7 +21,6 @@ class CrosvmLink:
         else:
             self.crosvm_bin = "crosvm"
 
-    # pylint: disable = too-many-branches
     async def add_usb_device(self, usb_info: USBInfo) -> None:
         dev_node = usb_info.device_node
         assert dev_node is not None, "Device node must be set"

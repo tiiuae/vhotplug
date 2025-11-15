@@ -58,7 +58,7 @@ class USBInfo(NamedTuple):
 
     @property
     def root_port(self) -> int | None:
-        return self.ports[0] if self.ports else None  # pylint: disable=unsubscriptable-object
+        return self.ports[0] if self.ports else None
 
     def is_boot_device(self, context: pyudev.Context) -> bool:
         # Find device partitions

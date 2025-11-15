@@ -35,7 +35,6 @@ logger = logging.getLogger("vhotplug")
 
 
 class APIServer:
-    # pylint: disable = too-many-instance-attributes
     def __init__(self, app_context: "AppContext", loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self.app_context = app_context

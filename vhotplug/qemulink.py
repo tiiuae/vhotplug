@@ -140,7 +140,6 @@ class QEMULink:
         if not res:
             return
 
-        # pylint: disable = too-many-locals
         def walk_devices(devices: list[dict[str, Any]], indent: int = 0) -> None:
             for dev in devices:
                 qdev_id = dev.get("qdev_id")

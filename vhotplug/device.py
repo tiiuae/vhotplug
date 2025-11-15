@@ -91,7 +91,6 @@ async def find_vm_for_device(app_context: "AppContext", dev_info: USBInfo | PCII
     return res
 
 
-# pylint: disable=too-many-branches,too-many-return-statements
 async def attach_device(
     app_context: "AppContext",
     passthrough_info: PassthroughInfo,
@@ -241,7 +240,6 @@ async def _attach_device_to_vm(app_context: "AppContext", dev_info: USBInfo | PC
         app_context.api_server.notify_dev_attached(dev_info, vm_name)
 
 
-# pylint: disable=too-many-nested-blocks
 async def remove_device(app_context: "AppContext", dev_info: USBInfo | PCIInfo) -> None:
     """Find a VM selected for the device and remove it."""
     # Get current VM for the device from the state database
@@ -622,7 +620,6 @@ def get_usb_devices(app_context: "AppContext") -> list[dict[str, Any]]:
     return dev_list
 
 
-# pylint: disable = too-many-nested-blocks
 def get_pci_devices(app_context: "AppContext") -> list[dict[str, Any]]:
     """Returns a list of all PCI devices that match the rules from the config."""
 
