@@ -22,7 +22,7 @@ from vhotplug.usb import (
     usb_device_by_node,
     usb_device_by_vid_pid,
 )
-from vhotplug.vmm import vmm_add_device, vmm_pause, vmm_remove_device, vmm_resume
+from vhotplug.vmm import vmm_add_device, vmm_is_pci_dev_connected, vmm_pause, vmm_remove_device, vmm_resume
 
 logger = logging.getLogger("vhotplug")
 
@@ -81,7 +81,7 @@ async def find_vm_for_device(app_context: AppContext, dev_info: USBInfo | PCIInf
 
     # Check if the user manually disconnected the device before
     if app_context.dev_state.is_disconnected(dev_info):
-        logger.info("Device %s was forcibly disconnected", dev_info.friendly_name())
+        logger.info("Device %s was permanently disconnected", dev_info.friendly_name())
         return None
 
     return res
@@ -330,7 +330,7 @@ async def _remove_existing_device(
     # Remove device from the VM
     await remove_device(app_context, dev_info)
 
-    # Mark the device as forcibly disconnected
+    # Mark the device as permanently disconnected
     if permanent:
         app_context.dev_state.set_disconnected(dev_info)
 
@@ -588,6 +588,41 @@ async def detach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
                 logger.debug("Device %s does not match any rules", pci_info.friendly_name())
 
 
+async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
+    """Detach all PCI devices that were previously permanently disconnected."""
+    logger.info("Checking permanently disconnected PCI devices")
+
+    for device in app_context.udev_context.list_devices(subsystem="pci"):
+        pci_info = get_pci_info(device)
+        if app_context.dev_state.is_disconnected(pci_info):
+            logger.info("Found permanently disconnected device: %s", pci_info.friendly_name())
+
+            # Find a rule for the device in the config file
+            res = app_context.config.vm_for_device(pci_info)
+            if not res:
+                logger.warning("No rule for %s", pci_info.friendly_name())
+                continue
+
+            # For PCI devices there must be single target vm defined
+            if not res.target_vm:
+                logger.warning("Target VM is not set for %s", pci_info.friendly_name())
+                continue
+
+            if vms_scope and res.target_vm not in vms_scope:
+                continue
+
+            try:
+                # Check if the VM is valid
+                vm = app_context.config.get_vm(res.target_vm)
+                if not vm:
+                    logger.warning("VM %s not found in the configuration file", res.target_vm)
+                elif await vmm_is_pci_dev_connected(vm, pci_info):
+                    logger.info("Detaching %s from %s", pci_info.friendly_name(), res.target_vm)
+                    await vmm_remove_device(app_context, vm, pci_info)
+            except RuntimeError:
+                logger.exception("Failed to remove %s", pci_info.friendly_name())
+
+
 def get_usb_devices(app_context: AppContext) -> list[dict[str, Any]]:
     """Returns a list of all USB devices that match the rules from the config."""
     dev_list: list[dict[str, Any]] = []
@@ -658,7 +693,7 @@ def get_pci_devices(app_context: AppContext) -> list[dict[str, Any]]:
         # Check PCI devices from IOMMU group
         iommu_devs = []
         iommu_devs_addr = get_iommu_group_devices(dev_info.address)
-        if len(devices) > 1:
+        if len(iommu_devs_addr) > 1:
             if passthrough_info.pci_iommu_skip_if_shared:
                 continue
 

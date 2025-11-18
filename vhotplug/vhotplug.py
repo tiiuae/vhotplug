@@ -12,6 +12,7 @@ from vhotplug.device import (
     attach_connected_pci,
     attach_connected_usb,
     attach_device,
+    detach_disconnected_pci,
     find_vm_for_device,
     get_usb_info,
     is_usb_device,
@@ -106,6 +107,8 @@ async def monitor_loop(app_context: AppContext, file_watcher: FileWatcher, attac
                 await attach_connected_evdev(app_context)
             # Check PCI devices for restarted VMs
             await attach_connected_pci(app_context, vms_restarted)
+            # Check PCI devices for restarted VMs and detach those that were previously permanently detached
+            await detach_disconnected_pci(app_context, vms_restarted)
             # Check USB devices for restarted VMs
             await attach_connected_usb(app_context, vms_restarted)
 
@@ -168,6 +171,8 @@ async def async_main() -> None:
         await attach_connected_usb(app_context)
         # Check all PCI devices devices and attach to VMs
         await attach_connected_pci(app_context)
+        # Check all PCI devices and detach those that were previously permanently detached
+        await detach_disconnected_pci(app_context)
 
     logger.info("Waiting for new devices")
     await monitor_loop(app_context, file_watcher, args.attach_connected)

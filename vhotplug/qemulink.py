@@ -19,6 +19,7 @@ logger = logging.getLogger("vhotplug")
 class QEMULink:
     vm_retry_count = 5
     vm_retry_timeout = 1
+    vm_wait_after_boot = 0
     vm_boot_timeout = 1
 
     def __init__(self, socket_path: str) -> None:
@@ -39,7 +40,7 @@ class QEMULink:
 
     def _wait_for_boot(self) -> bool:
         """Waits for a qemu vm to boot."""
-        return wait_for_unix_socket(self.socket_path, self.vm_boot_timeout, 0, socket.SOCK_STREAM)
+        return wait_for_unix_socket(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot, socket.SOCK_STREAM)
 
     def _qemu_id_usb(self, usb_info: USBInfo) -> str:
         return f"usb{usb_info.busnum}{usb_info.devnum}"
@@ -77,6 +78,11 @@ class QEMULink:
 
             if not retry:
                 break
+
+            # Don't retry when PCI port is not available
+            if re.search(r"PCI: slot \d+ function \d+ already occupied by", str(last_error)):
+                break
+
             if attempt < self.vm_retry_count:
                 logger.info("Retrying in %s seconds...", self.vm_retry_timeout)
                 await asyncio.sleep(self.vm_retry_timeout)
@@ -266,41 +272,53 @@ class QEMULink:
             qemuid = self._qemu_id_usb(usb_info)
             await self._execute("device_del", {"id": qemuid})
 
+    async def _add_pci_device(self, params: dict[str, Any]) -> None:
+        """Adds PCI device to the first available PCI port."""
+        ports = await self._find_empty_pci_bridges()
+        if len(ports):
+            logger.debug("Found %d empty PCI bridges: %s", len(ports), ports)
+        else:
+            logger.warning("Could not find any empty PCI bridges in the VM")
+
+        for port in ports:
+            try:
+                logger.debug("Trying port %s", port)
+                params["bus"] = port
+                await self._execute("device_add", params)
+                return
+            except RuntimeError as e:
+                if re.search(r"PCI: slot \d+ function \d+ already occupied by", str(e)):
+                    logger.warning("PCI port %s is not available", port)
+                    continue
+                raise
+
+        raise RuntimeError("No available PCI ports found")
+
     async def add_evdev_device(self, device: pyudev.Device) -> None:
         async with self._lock:
             if not self._wait_for_boot():
                 logger.warning("VM is not booted while adding device %s", device.device_node)
                 return
 
-            bus = await self._find_empty_pci_bridge()
-            if bus:
-                logger.info("Found empty PCI bridge: %s", bus)
-            else:
-                logger.warning("Could not find an empty PCI bridge in the VM")
-
             qemuid = self._qemu_id_evdev(device)
             logger.debug(
-                "Adding evdev device %s with id %s to bus %s",
+                "Adding evdev device %s with id %s",
                 device.device_node,
                 qemuid,
-                bus,
             )
             try:
-                await self._execute(
-                    "device_add",
+                await self._add_pci_device(
                     {
                         "driver": "virtio-input-host-pci",
                         "evdev": device.device_node,
                         "id": qemuid,
-                        "bus": bus,
-                    },
+                    }
                 )
-                logger.info("Attached evdev device %s to bus %s", device.device_node, bus)
+                logger.info("Attached evdev device %s", device.device_node)
             except RuntimeError as e:
                 if str(e).endswith("Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")
                     return
-                raise
 
     async def remove_evdev_device(self, device: pyudev.Device) -> None:
         async with self._lock:
@@ -328,12 +346,6 @@ class QEMULink:
                 )
                 return
 
-            bus = await self._find_empty_pci_bridge()
-            if bus:
-                logger.info("Found empty PCI bridge: %s", bus)
-            else:
-                logger.warning("Could not find an empty PCI bridge in the VM")
-
             qemuid = self._qemu_id_pci(pci_info)
             logger.info(
                 "Adding PCI device %s with id %s to %s",
@@ -341,16 +353,15 @@ class QEMULink:
                 qemuid,
                 self.socket_path,
             )
-            await self._execute(
-                "device_add",
+
+            await self._add_pci_device(
                 {
                     "driver": "vfio-pci",
                     "host": pci_info.address,
                     "id": qemuid,
-                    "bus": bus,
-                },
+                }
             )
-            logger.info("Attached PCI device: %s", qemuid)
+            logger.info("Attached PCI device: %s", pci_info.friendly_name())
 
     async def _remove_pci_device_by_qemu_id(self, qemuid: str) -> None:
         await self._execute("device_del", {"id": qemuid}, False)
@@ -398,37 +409,33 @@ class QEMULink:
 
         return None
 
-    async def _find_empty_pci_bridge(self) -> str | None:
+    async def _find_empty_pci_bridges(self) -> list[str]:
         res = await self._execute("query-pci")
         if not res:
-            return None
+            return []
 
-        def walk_devices(devices: list[dict[str, Any]]) -> str | None:
+        def walk_devices(devices: list[dict[str, Any]]) -> list[str]:
+            qemu_ids: list[str] = []
             for dev in devices:
                 pci_bridge = dev.get("pci_bridge")
                 if pci_bridge:
                     subdevs = pci_bridge.get("devices", [])
                     if subdevs:
-                        qemu_id = walk_devices(subdevs)
-                        if qemu_id:
-                            return qemu_id
+                        qemu_ids.extend(walk_devices(subdevs))
                     else:
-                        qemu_id = dev.get("qdev_id")
-                        if qemu_id:
-                            return str(qemu_id)
+                        qdev_id = dev.get("qdev_id")
+                        if qdev_id:
+                            qemu_ids.append(str(qdev_id))
+            return qemu_ids
 
-            return None
-
+        all_qemu_ids: list[str] = []
         for root_bus in res:
             if isinstance(root_bus, dict):
-                devices = root_bus["devices"]
-                if not isinstance(devices, list):
-                    continue
-                qemu_id = walk_devices(devices)
-                if qemu_id:
-                    return str(qemu_id)
+                devices = root_bus.get("devices", [])
+                if isinstance(devices, list):
+                    all_qemu_ids.extend(walk_devices(devices))
 
-        return None
+        return all_qemu_ids
 
     async def remove_pci_device_by_vid_did(self, pci_info: PCIInfo) -> None:
         async with self._lock:
@@ -462,3 +469,10 @@ class QEMULink:
 
             await self._execute("cont")
             logger.info("Resumed %s", self.socket_path)
+
+    async def is_pci_dev_connected(self, pci_info: PCIInfo) -> bool:
+        async with self._lock:
+            if not self._wait_for_boot():
+                raise RuntimeError("VM is not booted while checking PCI device")
+
+            return await self._find_pci_device(pci_info) is not None

@@ -23,7 +23,7 @@ class DeviceState:
         # Persistent map for devices that have multiple VMs selected by the user
         self.selected_vms: dict[str, str] = {}
 
-        # Persistent set of devices forcibly disconnected by the user
+        # Persistent set of devices permanently disconnected by the user
         self.disconnected_devices: set[str] = set()
 
         # Load data from a JSON file if persistence is enabled

@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from vhotplug.appcontext import AppContext
 from vhotplug.crosvmlink import CrosvmLink
@@ -39,7 +40,7 @@ async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: 
         raise RuntimeError(f"Unknown VM type: {vm_type}")
 
 
-async def vmm_remove_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_remove_device(app_context: AppContext, vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:
     """Removes a device from the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -91,3 +92,15 @@ async def vmm_resume(vm: dict[str, str]) -> None:
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
         await qemu.resume()
+
+
+async def vmm_is_pci_dev_connected(vm: dict[str, str], pci_info: PCIInfo) -> bool:
+    vm_type = vm.get("type")
+    vm_socket = vm.get("socket")
+    if not vm_socket:
+        raise RuntimeError("No socket path defined")
+
+    if vm_type == "qemu":
+        qemu = QEMULink(vm_socket)
+        return await qemu.is_pci_dev_connected(pci_info)
+    return False
