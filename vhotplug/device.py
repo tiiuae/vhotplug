@@ -5,6 +5,7 @@ import pyudev
 
 from vhotplug.appcontext import AppContext
 from vhotplug.config import PassthroughInfo
+from vhotplug.evdev import evdev_test_grab, get_evdev_info, is_input_device
 from vhotplug.pci import (
     PCIInfo,
     get_iommu_group_devices,
@@ -722,3 +723,47 @@ def get_pci_devices(app_context: AppContext) -> list[dict[str, Any]]:
         dev_list.append(dev)
 
     return dev_list
+
+
+async def attach_connected_evdev(app_context: AppContext) -> None:
+    """Finds non-USB evdev devices and attaches them to the selected VM."""
+    logger.info("Checking connected non-USB input devices")
+    for device in app_context.udev_context.list_devices(subsystem="input"):
+        bus = device.properties.get("ID_BUS")
+        if is_input_device(device) and bus != "usb":
+            evdev_info = get_evdev_info(device)
+            logger.info(
+                "Found event device: %s, bus: %s, path tag: %s",
+                evdev_info.friendly_name(),
+                evdev_info.bus,
+                evdev_info.path_tag,
+            )
+            log_device(device, logging.DEBUG)
+
+            # Find a rule for the device in the config file
+            res = app_context.config.vm_for_device(evdev_info)
+            if not res:
+                logger.debug("No VM found for %s", evdev_info.friendly_name())
+                continue
+
+            if not res.target_vm:
+                logger.error("Target VM is not defined for %s", evdev_info.friendly_name())
+                continue
+
+            # Get VM details from the config
+            vm = app_context.config.get_vm(res.target_vm)
+            if not vm:
+                logger.error("VM %s is not found in the config file", res.target_vm)
+                continue
+
+            if await evdev_test_grab(device):
+                logger.info(
+                    "Device %s is grabbed by another process, it is likely already connected to the VM",
+                    evdev_info.friendly_name(),
+                )
+            else:
+                logger.info("Attaching %s to %s", evdev_info.friendly_name(), res.target_vm)
+                try:
+                    await vmm_add_device(app_context, vm, evdev_info)
+                except RuntimeError:
+                    logger.exception("Failed to attach evdev device %s", evdev_info.friendly_name())

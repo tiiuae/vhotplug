@@ -1,12 +1,9 @@
 import fcntl
 import logging
 import struct
+from typing import Any, NamedTuple
 
 import pyudev
-
-from vhotplug.appcontext import AppContext
-from vhotplug.device import log_device
-from vhotplug.qemulink import QEMULink
 
 # Constants from Linux kernel source code
 EVIOCGRAB = 0x40044590
@@ -15,20 +12,45 @@ EVIOCGNAME = 0x82004506
 logger = logging.getLogger("vhotplug")
 
 
+class EvdevInfo(NamedTuple):
+    name: str
+    sys_name: str
+    bus: str
+    device_node: str
+    path_tag: str
+    properties: property
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "sys_name": self.sys_name,
+            "bus": self.bus,
+            "device_node": self.device_node,
+            "path_tag": self.path_tag,
+        }
+
+    def friendly_name(self) -> str:
+        return f"{self.name} ({self.device_node})"
+
+
+def get_evdev_info(device: pyudev.Device) -> EvdevInfo:
+    name = _get_evdev_name(device) or ""
+    sys_name = device.sys_name
+    bus = device.properties.get("ID_BUS")
+    device_node = device.device_node
+    path_tag = device.properties.get("ID_PATH_TAG")
+
+    return EvdevInfo(name, sys_name, bus, device_node, path_tag, device.properties)
+
+
 def is_input_device(device: pyudev.Device) -> bool:
     """Checks udev properties to determine whether it is an input device eligible for passthrough."""
-    if device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1":
-        return bool(
-            device.properties.get("ID_INPUT_MOUSE") == "1"
-            or (device.properties.get("ID_INPUT_KEYBOARD") == "1")
-            or (device.properties.get("ID_INPUT_TOUCHPAD") == "1")
-            or (device.properties.get("ID_INPUT_TOUCHSCREEN") == "1")
-            or (device.properties.get("ID_INPUT_TABLET") == "1")
-        )
-    return False
+    return bool(
+        device.subsystem == "input" and device.sys_name.startswith("event") and device.properties.get("ID_INPUT") == "1"
+    )
 
 
-def get_evdev_name(device: pyudev.Device) -> str | None:
+def _get_evdev_name(device: pyudev.Device) -> str | None:
     """Reads evdev friendly name by using EVIOCGNAME ioctl."""
     if device.device_node:
         with open(device.device_node, "rb") as dev:
@@ -39,7 +61,7 @@ def get_evdev_name(device: pyudev.Device) -> str | None:
         return None
 
 
-async def test_grab(device: pyudev.Device) -> bool:
+async def evdev_test_grab(device: pyudev.Device) -> bool:
     """Tries to grab a device to see if it's already attached to a VM."""
     with open(device.device_node, "wb") as dev:  # noqa: ASYNC230
         try:
@@ -48,45 +70,3 @@ async def test_grab(device: pyudev.Device) -> bool:
             logger.debug(e)
             return True
     return False
-
-
-async def attach_evdev_device(vm: dict[str, str], device: pyudev.Device) -> None:
-    """Attaches evdev device to QEMU."""
-    vm_name = vm.get("name")
-    vm_type = vm.get("type")
-    if vm_type != "qemu":
-        logger.error("Evdev passthrough is not supported for %s with type %s", vm_name, vm_type)
-        return
-    vm_socket = vm.get("socket")
-    assert vm_socket is not None, "VM socket must be set"
-    logger.info("Attaching evdev device to %s (%s)", vm_name, vm_socket)
-    qemu = QEMULink(vm_socket)
-    await qemu.add_evdev_device(device)
-
-
-async def attach_connected_evdev(app_context: AppContext) -> None:
-    """Finds all non-USB evdev devices and attaches them to the selected VM."""
-    vm = app_context.config.vm_for_evdev_devices()
-    if vm is None:
-        logger.debug("Evdev passthrough is not enabled")
-        return
-
-    logger.info("Checking connected non-USB input devices")
-    for device in app_context.udev_context.list_devices(subsystem="input"):
-        bus = device.properties.get("ID_BUS")
-        if is_input_device(device) and bus != "usb":
-            name = get_evdev_name(device)
-            logger.info(
-                "Found non-USB input device: %s, bus: %s, node: %s",
-                name,
-                bus,
-                device.device_node,
-            )
-            log_device(device)
-            if await test_grab(device):
-                logger.info("The device is grabbed by another process, it is likely already connected to the VM")
-            else:
-                try:
-                    await attach_evdev_device(vm, device)
-                except RuntimeError:
-                    logger.exception("Failed to attach evdev device %s", name)

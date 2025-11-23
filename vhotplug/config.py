@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from vhotplug.evdev import EvdevInfo
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo, parse_usb_interfaces
 
@@ -50,14 +51,11 @@ class Config:
         except (ValueError, TypeError):
             return None
 
-    def _match_usb(self, dev_info: USBInfo | PCIInfo, usb_rule: dict[str, Any]) -> bool:
-        if not isinstance(dev_info, USBInfo):
-            return False
-        usb_info = dev_info
+    def _match_usb(self, usb_info: USBInfo, usb_rule: dict[str, Any]) -> bool:
         if self._disabled(usb_rule):
             return False
 
-        rule_description = usb_rule.get("description")
+        rule_description = usb_rule.get("description", "")
         logger.debug("Rule: %s", rule_description)
 
         # Match by VID/PID
@@ -158,14 +156,11 @@ class Config:
 
         return False
 
-    def _match_pci(self, dev_info: USBInfo | PCIInfo, rule: dict[str, Any]) -> bool:
-        if not isinstance(dev_info, PCIInfo):
-            return False
-        pci_info = dev_info
+    def _match_pci(self, pci_info: PCIInfo, rule: dict[str, Any]) -> bool:
         if self._disabled(rule):
             return False
 
-        rule_description = rule.get("description")
+        rule_description = rule.get("description", "")
         logger.debug("Rule: %s", rule_description)
 
         # Match by address
@@ -210,30 +205,59 @@ class Config:
 
         return False
 
-    def vm_for_device(self, dev_info: USBInfo | PCIInfo) -> PassthroughInfo | None:
+    def _match_evdev(self, evdev_info: EvdevInfo, rule: dict[str, Any]) -> bool:
+        if self._disabled(rule):
+            return False
+
+        rule_description = rule.get("description", "")
+        logger.debug("Rule: %s", rule_description)
+
+        # Match by name
+        rule_name = rule.get("name")
+        logger.debug("Checking %s against %s", evdev_info.name, rule_name)
+        name_match = rule_name and re.match(rule_name, evdev_info.name or "", re.IGNORECASE)
+        if name_match:
+            logger.debug("Match by name, description: %s", rule_description)
+            return True
+
+        # Match by path tag
+        rule_path_tag = rule.get("pathTag")
+        logger.debug("Checking %s against %s", evdev_info.path_tag, rule_path_tag)
+        path_tag_match = rule_path_tag and re.match(rule_path_tag, evdev_info.path_tag or "", re.IGNORECASE)
+        if path_tag_match:
+            logger.debug("Match by path tag, description: %s", rule_description)
+            return True
+
+        # Match by property
+        rule_property = rule.get("property")
+        rule_value = rule.get("value")
+        logger.debug("Checking property %s value %s", rule_property, rule_value)
+        if rule_property and rule_value:
+            value = evdev_info.properties.get(rule_property)
+            if value and value.casefold() == rule_value.casefold():
+                logger.debug("Match by property, description: %s", rule_description)
+                return True
+
+        return False
+
+    def vm_for_usb_device(self, usb_info: USBInfo) -> PassthroughInfo | None:
         try:
-            dev_name = dev_info.friendly_name()
+            dev_name = usb_info.friendly_name()
             logger.debug("Searching for a VM for %s", dev_name)
 
-            is_usb_dev = isinstance(dev_info, USBInfo)
-            node_name = "usbPassthrough" if is_usb_dev else "pciPassthrough"
-            match = self._match_usb if is_usb_dev else self._match_pci
-
-            order = 0
-            for rule in self.config.get(node_name, []):
+            for rule in self.config.get("usbPassthrough", []):
                 rule_name = rule.get("description")
                 if self._disabled(rule):
                     continue
 
                 found = False
                 for allow in rule.get("allow", []):
-                    order = order + 1
-                    if match(dev_info, allow):
+                    if self._match_usb(usb_info, allow):
                         found = True
                         break
 
                 for deny in rule.get("deny", []):
-                    if match(dev_info, deny):
+                    if self._match_usb(usb_info, deny):
                         found = False
                         break
 
@@ -246,28 +270,96 @@ class Config:
                         logger.debug("Found allowed VMs %s for %s", allowed_vms, dev_name)
                     else:
                         logger.error("No target VM or allowed VMs defined for rule %s", rule_name)
+                        continue
 
+                    skip_on_suspend = rule.get("skipOnSuspend", False)
+                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend)
+
+        except (AttributeError, TypeError):
+            logger.exception("Failed to find VM for USB device in the configuration file")
+        return None
+
+    def vm_for_pci_device(self, pci_info: PCIInfo) -> PassthroughInfo | None:
+        try:
+            dev_name = pci_info.friendly_name()
+            logger.debug("Searching for a VM for %s", dev_name)
+
+            order = 0
+            for rule in self.config.get("pciPassthrough", []):
+                rule_name = rule.get("description", "")
+                if self._disabled(rule):
+                    continue
+
+                found = False
+                for allow in rule.get("allow", []):
+                    order = order + 1
+                    if self._match_pci(pci_info, allow):
+                        found = True
+                        break
+
+                for deny in rule.get("deny", []):
+                    if self._match_pci(pci_info, deny):
+                        found = False
+                        break
+
+                if found:
+                    target_vm = rule.get("targetVm")
+                    if not target_vm:
+                        logger.error("No target VM defined for rule %s", rule_name)
+                        continue
+
+                    logger.debug("Found VM %s for %s", target_vm, dev_name)
                     skip_on_suspend = rule.get("skipOnSuspend", False)
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
                     return PassthroughInfo(
-                        target_vm, allowed_vms, skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order
+                        target_vm, [], skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order
                     )
 
         except (AttributeError, TypeError):
-            logger.exception("Failed to find VM for device in the configuration file")
+            logger.exception("Failed to find VM for PCI device in the configuration file")
         return None
 
-    def vm_for_evdev_devices(self) -> dict[str, Any] | None:
+    def vm_for_evdev_device(self, evdev_info: EvdevInfo) -> PassthroughInfo | None:
         try:
-            evdev = self.config.get("evdevPassthrough")
-            if evdev and self._disabled(evdev) is not True:
-                vm_name = evdev.get("targetVm")
-                logger.debug("Found VM %s for evdev passthrough", vm_name)
-                return self.get_vm(vm_name)
+            dev_name = evdev_info.friendly_name()
+            logger.debug("Searching for a VM for %s", dev_name)
+
+            for rule in self.config.get("evdevPassthrough", []):
+                rule_name = rule.get("description", "")
+                if self._disabled(rule):
+                    continue
+
+                found = False
+                for allow in rule.get("allow", []):
+                    if self._match_evdev(evdev_info, allow):
+                        found = True
+                        break
+
+                for deny in rule.get("deny", []):
+                    if self._match_evdev(evdev_info, deny):
+                        found = False
+                        break
+
+                if found:
+                    target_vm = rule.get("targetVm")
+                    if not target_vm:
+                        logger.error("No target VM defined for rule %s", rule_name)
+                        continue
+
+                    logger.debug("Found VM %s for %s", target_vm, dev_name)
+                    return PassthroughInfo(target_vm, [])
+
         except (AttributeError, TypeError):
             logger.exception("Failed to find VM for evdev device in the configuration file")
         return None
+
+    def vm_for_device(self, dev_info: USBInfo | PCIInfo | EvdevInfo) -> PassthroughInfo | None:
+        if isinstance(dev_info, USBInfo):
+            return self.vm_for_usb_device(dev_info)
+        if isinstance(dev_info, PCIInfo):
+            return self.vm_for_pci_device(dev_info)
+        return self.vm_for_evdev_device(dev_info)
 
     def get_all_vms(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = self.config.get("vms", [])
