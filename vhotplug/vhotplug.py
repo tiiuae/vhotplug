@@ -9,6 +9,7 @@ from vhotplug.apiserver import APIServer
 from vhotplug.appcontext import AppContext
 from vhotplug.config import Config
 from vhotplug.device import (
+    attach_connected_evdev,
     attach_connected_pci,
     attach_connected_usb,
     attach_device,
@@ -20,7 +21,6 @@ from vhotplug.device import (
     remove_device,
 )
 from vhotplug.devicestate import DeviceState
-from vhotplug.evdev import attach_connected_evdev
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
 
@@ -101,10 +101,8 @@ async def monitor_loop(app_context: AppContext, file_watcher: FileWatcher, attac
                     if vm_name:
                         vms_restarted.append(vm_name)
 
-            # Check non-USB evdev devices when the target VM is restarted
-            vm = app_context.config.vm_for_evdev_devices()
-            if vm and vm.get("name") in vms_restarted:
-                await attach_connected_evdev(app_context)
+            # Check non-USB evdev devices for restarted VMs
+            await attach_connected_evdev(app_context)
             # Check PCI devices for restarted VMs
             await attach_connected_pci(app_context, vms_restarted)
             # Check PCI devices for restarted VMs and detach those that were previously permanently detached

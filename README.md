@@ -48,10 +48,22 @@ The following parameters can be used for PCI passthrough:
 - deviceSubclass — PCI device subclass (e.g., 128)
 - deviceProgIf — PCI device programming interface (e.g., 0)
 
-# Example
+# Running
+
+This project can be run using a standard Python virtual environment.
+
+Create and activate a virtual environment:
 
 ```
-sudo python3 -m vhotplug -a -c ./vhotplug.conf
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
+```
+
+Run the application:
+
+```
+sudo .venv/bin/python3 -m vhotplug -a -c ./config.json
 ```
 
 # Usage
@@ -129,10 +141,21 @@ options:
       ]
     }
   ],
-  "evdevPassthrough": {
-    "disable": true,
-    "targetVm": "vm1"
-  },
+  "evdevPassthrough": [
+    {
+      "description": "Non-USB Input Devices for VM1",
+      "targetVm": "vm1",
+      "allow": [
+        {
+          "property": "ID_INPUT_MOUSE",
+          "value": "1"
+        },
+        {
+          "pathTag": "platform-PNP0C14:02"
+        }
+      ]
+    }
+  ],
   "vms": [
     {
       "name": "vm1",
@@ -143,31 +166,7 @@ options:
 }
 ```
 
-# Installation
-
-## With pip
-
-### User Installation
-
-To install vhotplug as a regular user (requires Python >= 3.13):
-
-```bash
-pip install .
-```
-
-This will install vhotplug and its dependencies to your Python environment.
-
-### Developer Installation
-
-For development work, install in editable mode so changes to the source code are immediately reflected:
-
-```bash
-pip install -e .
-```
-
-This allows you to modify the code and test changes without reinstalling.
-
-# Getting Started with Nix
+# Running with Nix
 
 This project uses Nix for reproducible builds and development environments.
 

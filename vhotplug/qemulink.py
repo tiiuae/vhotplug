@@ -7,6 +7,7 @@ from typing import Any
 import pyudev
 from qemu.qmp import QMPClient, QMPError
 
+from vhotplug.evdev import EvdevInfo
 from vhotplug.misc import wait_for_unix_socket
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
@@ -48,8 +49,8 @@ class QEMULink:
     def _qemu_id_pci(self, pci_info: PCIInfo) -> str:
         return pci_info.runtime_id()
 
-    def _qemu_id_evdev(self, device: pyudev.Device) -> str:
-        return f"evdev-{device.sys_name}"
+    def _qemu_id_evdev(self, evdev_info: EvdevInfo) -> str:
+        return f"evdev-{evdev_info.sys_name}"
 
     async def _execute(
         self, cmd: str, args: dict[str, Any] | None = None, retry: bool = True
@@ -294,27 +295,27 @@ class QEMULink:
 
         raise RuntimeError("No available PCI ports found")
 
-    async def add_evdev_device(self, device: pyudev.Device) -> None:
+    async def add_evdev_device(self, evdev_info: EvdevInfo) -> None:
         async with self._lock:
             if not self._wait_for_boot():
-                logger.warning("VM is not booted while adding device %s", device.device_node)
+                logger.warning("VM is not booted while adding device %s", evdev_info.friendly_name())
                 return
 
-            qemuid = self._qemu_id_evdev(device)
+            qemuid = self._qemu_id_evdev(evdev_info)
             logger.debug(
                 "Adding evdev device %s with id %s",
-                device.device_node,
+                evdev_info.device_node,
                 qemuid,
             )
             try:
                 await self._add_pci_device(
                     {
                         "driver": "virtio-input-host-pci",
-                        "evdev": device.device_node,
+                        "evdev": evdev_info.device_node,
                         "id": qemuid,
                     }
                 )
-                logger.info("Attached evdev device %s", device.device_node)
+                logger.info("Attached evdev device %s", evdev_info.device_node)
             except RuntimeError as e:
                 if str(e).endswith("Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")

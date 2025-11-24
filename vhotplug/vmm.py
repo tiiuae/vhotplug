@@ -3,6 +3,7 @@ from typing import Any
 
 from vhotplug.appcontext import AppContext
 from vhotplug.crosvmlink import CrosvmLink
+from vhotplug.evdev import EvdevInfo
 from vhotplug.pci import PCIInfo
 from vhotplug.qemulink import QEMULink
 from vhotplug.usb import USBInfo
@@ -16,7 +17,7 @@ def _get_crosvm_bin(app_context: AppContext) -> str | None:
     return crosvm_bin if isinstance(crosvm_bin, str) else None
 
 
-async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo | EvdevInfo) -> None:
     """Attaches a device to the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -28,14 +29,18 @@ async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: 
         if isinstance(dev_info, USBInfo):
             # await qemu.add_usb_device_by_vid_pid(usb_info)
             await qemu.add_usb_device(dev_info)
-        else:
+        elif isinstance(dev_info, PCIInfo):
             await qemu.add_pci_device(dev_info)
+        else:
+            await qemu.add_evdev_device(dev_info)
     elif vm_type == "crosvm":
         crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
         if isinstance(dev_info, USBInfo):
             await crosvm.add_usb_device(dev_info)
-        else:
+        elif isinstance(dev_info, PCIInfo):
             await crosvm.add_pci_device(dev_info)
+        else:
+            raise RuntimeError(f"Evdev passthrough is not supported by {vm_type}")
     else:
         raise RuntimeError(f"Unknown VM type: {vm_type}")
 
