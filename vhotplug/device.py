@@ -624,7 +624,7 @@ async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] 
                 logger.exception("Failed to remove %s", pci_info.friendly_name())
 
 
-def get_usb_devices(app_context: AppContext) -> list[dict[str, Any]]:
+def get_usb_devices(app_context: AppContext, disconnected: bool) -> list[dict[str, Any]]:
     """Returns a list of all USB devices that match the rules from the config."""
     dev_list: list[dict[str, Any]] = []
     for device in app_context.udev_context.list_devices(subsystem="usb"):
@@ -647,6 +647,8 @@ def get_usb_devices(app_context: AppContext) -> list[dict[str, Any]]:
             current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
             if app_context.dev_state.is_disconnected(dev_info):
                 current_vm_name = None
+            elif disconnected:
+                continue
 
             dev = dev_info.to_dict()
             dev["allowed_vms"] = allowed_vms
@@ -656,7 +658,7 @@ def get_usb_devices(app_context: AppContext) -> list[dict[str, Any]]:
     return dev_list
 
 
-def get_pci_devices(app_context: AppContext) -> list[dict[str, Any]]:
+def get_pci_devices(app_context: AppContext, disconnected: bool) -> list[dict[str, Any]]:
     """Returns a list of all PCI devices that match the rules from the config."""
 
     # Find PCI devices eligible for passthrough
@@ -686,6 +688,8 @@ def get_pci_devices(app_context: AppContext) -> list[dict[str, Any]]:
         current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
         if app_context.dev_state.is_disconnected(dev_info):
             current_vm_name = None
+        elif disconnected:
+            continue
 
         # Skip if the devices was already added as a part of IOMMU group
         if any(d.get("address") == dev_info.address for d in dev_list):

@@ -61,17 +61,18 @@ def usb_detach(
     logger.info("Successfully detached")
 
 
-def usb_list(client: APIClient) -> None:
+def usb_list(client: APIClient, disconnected: bool, short: bool) -> None:
     client.connect()
-    res = client.usb_list()
+    res = client.usb_list(disconnected)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to get USB list: {res.get('error')}")
     logger.debug("USB list: %s", res)
     for dev in res.get("usb_devices", []):
         print(f"{dev['vid']}:{dev['pid']} {dev['vendor_name']} {dev['product_name']}")
-        for key, value in dev.items():
-            print(f"  {key:<16}: {value}")
-        print()
+        if not short:
+            for key, value in dev.items():
+                print(f"  {key:<16}: {value}")
+            print()
 
 
 def usb_suspend(client: APIClient, vm: str) -> None:
@@ -127,17 +128,18 @@ def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str
     logger.info("Successfully detached")
 
 
-def pci_list(client: APIClient) -> None:
+def pci_list(client: APIClient, disconnected: bool, short: bool) -> None:
     client.connect()
-    res = client.pci_list()
+    res = client.pci_list(disconnected)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to get PCI list: {res.get('error')}")
     logger.debug("PCI list: %s", res)
     for dev in res.get("pci_devices", []):
-        print(f"{dev['vid']}:{dev['did']} {dev['vendor_name']} {dev['device_name']}")
-        for key, value in dev.items():
-            print(f"  {key:<16}: {value}")
-        print()
+        print(f"{dev['address']} {dev['vid']}:{dev['did']} {dev['vendor_name']} {dev['device_name']}")
+        if not short:
+            for key, value in dev.items():
+                print(f"  {key:<16}: {value}")
+            print()
 
 
 def pci_suspend(client: APIClient, vm: str) -> None:
@@ -230,7 +232,9 @@ def main() -> int:
     usb_detach_parser.set_defaults(func=lambda a, c: usb_detach(c, a.devnode, a.bus, a.port, a.vid, a.pid))
 
     usb_list_parser = usb_sub.add_parser("list", help="Get USB list")
-    usb_list_parser.set_defaults(func=lambda a, c: usb_list(c))
+    usb_list_parser.add_argument("--disconnected", help="Show only disconnected devices", action="store_true")
+    usb_list_parser.add_argument("--short", help="Show device names only, without details", action="store_true")
+    usb_list_parser.set_defaults(func=lambda a, c: usb_list(c, a.disconnected, a.short))
 
     usb_suspend_parser = usb_sub.add_parser("suspend", help="USB suspend")
     usb_suspend_parser.add_argument("--vm", help="Virtual machine name")
@@ -259,8 +263,10 @@ def main() -> int:
     pci_detach_parser.add_argument("--did", help="PCI Device ID")
     pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did))
 
-    usb_list_parser = pci_sub.add_parser("list", help="Get PCI list")
-    usb_list_parser.set_defaults(func=lambda a, c: pci_list(c))
+    pci_list_parser = pci_sub.add_parser("list", help="Get PCI list")
+    pci_list_parser.add_argument("--disconnected", help="Show only disconnected devices", action="store_true")
+    pci_list_parser.add_argument("--short", help="Show device names only, without details", action="store_true")
+    pci_list_parser.set_defaults(func=lambda a, c: pci_list(c, a.disconnected, a.short))
 
     pci_suspend_parser = pci_sub.add_parser("suspend", help="PCI suspend")
     pci_suspend_parser.add_argument("--vm", help="Virtual machine name")

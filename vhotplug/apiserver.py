@@ -274,8 +274,9 @@ class APIServer:
                 self.notify_clients.append(client_sock)
         return {"result": "ok"}
 
-    def _on_usb_list(self, _client_sock: socket.socket, _client_addr: Any, _msg: dict[str, Any]) -> dict[str, Any]:
-        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context)}
+    def _on_usb_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
+        disconnected = msg.get("disconnected", False)
+        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context, disconnected)}
 
     def _on_usb_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         device_node = msg.get("device_node")
@@ -348,8 +349,9 @@ class APIServer:
         ).result()
         return {"result": "ok"}
 
-    def _on_pci_list(self, _client_sock: socket.socket, _client_addr: Any, _msg: dict[str, Any]) -> dict[str, Any]:
-        return {"result": "ok", "pci_devices": get_pci_devices(self.app_context)}
+    def _on_pci_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
+        disconnected = msg.get("disconnected", False)
+        return {"result": "ok", "pci_devices": get_pci_devices(self.app_context, disconnected)}
 
     def _on_pci_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         address = msg.get("address")
