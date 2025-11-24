@@ -62,6 +62,7 @@ class APIServer:
             "pci_detach": self._on_pci_detach,
             "pci_suspend": self._on_pci_suspend,
             "pci_resume": self._on_pci_resume,
+            "disconnected_list": self._on_disconnected_list,
         }
 
     def start(self) -> None:
@@ -410,3 +411,8 @@ class APIServer:
             attach_connected_pci(self.app_context, [vm] if vm else None), self.loop
         ).result()
         return {"result": "ok"}
+
+    def _on_disconnected_list(
+        self, _client_sock: socket.socket, _client_addr: Any, _msg: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {"result": "ok", "disconnected_devices": self.app_context.dev_state.list_disconnected()}

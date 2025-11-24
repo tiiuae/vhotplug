@@ -156,6 +156,24 @@ def pci_resume(client: APIClient, vm: str) -> None:
     logger.info("Successfully resumed")
 
 
+def disconnected_list(client: APIClient) -> None:
+    """Gets and prints the list of disconnected devices."""
+    client.connect()
+    res = client.disconnected_list()
+    if res.get("result") == "failed":
+        raise RuntimeError(f"Failed to get disconnected list: {res.get('error')}")
+    logger.debug("Disconnected list: %s", res)
+    devices = res.get("disconnected_devices", [])
+
+    if not devices:
+        print("No disconnected devices found.")
+        return
+
+    print("Disconnected devices:")
+    for device in devices:
+        print(f"  - {device}")
+
+
 def running_in_vm() -> bool:
     try:
         with open("/dev/vsock", "rb") as fd:
@@ -269,6 +287,11 @@ def main() -> int:
     pci_resume_parser = pci_sub.add_parser("resume", help="PCI resume")
     pci_resume_parser.add_argument("--vm", help="Virtual machine name")
     pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c, a.vm))
+
+    disconnected_parser = subparsers.add_parser("disconnected", help="Show disconnected devices from state file")
+    disconnected_sub = disconnected_parser.add_subparsers(dest="action", required=True)
+    disconnected_list_parser = disconnected_sub.add_parser("list", help="List disconnected devices")
+    disconnected_list_parser.set_defaults(func=lambda a, c: disconnected_list(c))
 
     args = parser.parse_args()
 

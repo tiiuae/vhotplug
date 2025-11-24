@@ -148,6 +148,9 @@ class APIClient:
     def pci_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_resume", "vm": vm})
 
+    def disconnected_list(self) -> dict[str, Any]:
+        return self.send({"action": "disconnected_list"})
+
     def recv_notifications(self, callback: Callable[[dict[str, Any]], None], reconnect_delay: int = 3) -> None:
         while True:
             try:
