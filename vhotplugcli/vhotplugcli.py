@@ -296,8 +296,8 @@ def main() -> int:
             cid=args.cid,
         )
         args.func(args, client)
-    except (RuntimeError, ValueError, OSError):
-        logger.exception("Exception occurred")
+    except (ValueError, OSError, RuntimeError) as e:
+        logger.error(str(e))  # noqa: TRY400
         return 1
     except KeyboardInterrupt:
         logger.info("Exiting")

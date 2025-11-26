@@ -281,7 +281,7 @@ async def remove_device(app_context: AppContext, dev_info: USBInfo | PCIInfo) ->
     # Get current VM for the device from the state database
     current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
     if not current_vm_name:
-        raise RuntimeError(f"VM not found for {dev_info.friendly_name()}")
+        raise RuntimeError(f"Device {dev_info.friendly_name()} is not attached to any VM")
 
     # Find a rule for the device in the config file
     res = app_context.config.vm_for_device(dev_info)
