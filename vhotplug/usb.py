@@ -1,4 +1,5 @@
 import logging
+import subprocess
 from typing import Any, NamedTuple
 
 import psutil
@@ -25,6 +26,7 @@ class USBInfo(NamedTuple):
     serial: str | None = None
     ports: list[int] | None = None
     sys_name: str | None = None
+    bcd_device: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +85,62 @@ class USBInfo(NamedTuple):
                             return True
         return False
 
+    def get_interfaces(self) -> list[dict[str, int]]:
+        result: list[dict[str, int]] = []
+        if self.interfaces:
+            try:
+                for interface in self.interfaces.strip(":").split(":"):
+                    if len(interface) >= 6:
+                        usb_class = interface[:2]
+                        usb_subclass = interface[2:4]
+                        usb_protocol = interface[4:6]
+                        result.append(
+                            {
+                                "class": int(usb_class, 16),
+                                "subclass": int(usb_subclass, 16),
+                                "protocol": int(usb_protocol, 16),
+                            }
+                        )
+            except (ValueError, TypeError):
+                logger.exception("Failed to parse USB interfaces")
+        return result
+
+    def is_usb_hub(self) -> bool:
+        usb_interfaces = self.get_interfaces()
+        for interface in usb_interfaces:
+            interface_class = interface["class"]
+            if interface_class == 9:
+                return True
+        return False
+
+    def _modalias(self, iface_class: int, iface_subclass: int, iface_protocol: int, iface_number: int) -> str | None:
+        if self.vid and self.pid:
+            return (
+                f"usb:v{self.vid.upper()}p{self.pid.upper()}"
+                f"d{self.bcd_device:04X}"
+                f"dc{self.device_class:02X}"
+                f"dsc{self.device_subclass:02X}"
+                f"dp{self.device_protocol:02X}"
+                f"ic{iface_class:02X}"
+                f"isc{iface_subclass:02X}"
+                f"ip{iface_protocol:02X}"
+                f"in{iface_number:02X}"
+            )
+        return None
+
+    def get_modaliases(self) -> list[str]:
+        result: list[str] = []
+        iface_number = 0
+        for interface in self.get_interfaces():
+            interface_class = interface["class"]
+            interface_subclass = interface["subclass"]
+            interface_protocol = interface["protocol"]
+            modalias = self._modalias(interface_class, interface_subclass, interface_protocol, iface_number)
+            if modalias:
+                result.append(modalias)
+            iface_number = iface_number + 1
+        return result
+
 
 def _bytes_to_int(data: bytes | None) -> int | None:
     if not data:
@@ -118,6 +176,7 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
     serial = device.properties.get("ID_SERIAL_SHORT")
     ports = _get_ports(device.sys_name)
     sys_name = device.sys_name
+    bcd_device = _bytes_to_int(device.attributes.get("bcdDevice"))
 
     return USBInfo(
         device_node,
@@ -134,38 +193,8 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
         serial,
         ports,
         sys_name,
+        bcd_device,
     )
-
-
-def parse_usb_interfaces(interfaces: str | None) -> list[dict[str, int]]:
-    result: list[dict[str, int]] = []
-    if interfaces:
-        try:
-            interfaces = interfaces.strip(":")
-            for interface in interfaces.split(":"):
-                if len(interface) >= 6:
-                    usb_class = interface[:2]
-                    usb_subclass = interface[2:4]
-                    usb_protocol = interface[4:6]
-                    result.append(
-                        {
-                            "class": int(usb_class, 16),
-                            "subclass": int(usb_subclass, 16),
-                            "protocol": int(usb_protocol, 16),
-                        }
-                    )
-        except (ValueError, TypeError):
-            logger.exception("Failed to parse USB interfaces")
-    return result
-
-
-def is_usb_hub(interfaces: str | None) -> bool:
-    usb_interfaces = parse_usb_interfaces(interfaces)
-    for interface in usb_interfaces:
-        interface_class = interface["class"]
-        if interface_class == 9:
-            return True
-    return False
 
 
 def is_usb_device(device: pyudev.Device) -> bool:
@@ -204,3 +233,62 @@ def usb_device_by_vid_pid(app_context: AppContext, vid: str, pid: str) -> pyudev
             ):
                 return device
     return None
+
+
+def _get_drivers_from_modalias(modalias: str, modprobe: str, modinfo: str) -> list[str] | None:
+    try:
+        # Resolve alias
+        result = subprocess.run(
+            [modprobe, "-R", modalias],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # A single modalias can have multiple drivers
+        output = result.stdout.strip()
+        if output:
+            modules = output.splitlines()
+    except subprocess.CalledProcessError as e:
+        # Some devices don't have an entry in modules.alias
+        logger.debug("Failed to resolve modalias %s", modalias)
+        logger.debug("Error: %s", e.stderr)
+        return None
+    except OSError as e:
+        logger.warning("Failed to resolve modalias %s: %s", modalias, str(e))
+        return None
+
+    drivers: list[str] = []
+    for module_name in modules:
+        logger.debug("Modalias %s module name: %s", modalias, module_name)
+
+        try:
+            # Get module path
+            result = subprocess.run(
+                [modinfo, "-n", module_name],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            driver = result.stdout.strip()
+            logger.debug("Modalias %s driver: %s", modalias, driver)
+            drivers.append(driver)
+
+        except subprocess.CalledProcessError as e:
+            logger.warning("Failed to get driver path for %s", modalias)
+            logger.warning("Error: %s", e.stderr)
+            return None
+        except OSError as e:
+            logger.warning("Failed to get driver path for %s: %s", modalias, str(e))
+            return None
+
+    return drivers
+
+
+def get_drivers_from_modaliases(modaliases: list[str], modprobe: str, modinfo: str) -> list[str]:
+    result: list[str] = []
+    for modalias in modaliases:
+        drivers = _get_drivers_from_modalias(modalias, modprobe, modinfo)
+        for d in drivers or []:
+            if d not in result:
+                result.append(d)
+    return result

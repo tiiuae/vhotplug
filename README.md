@@ -33,6 +33,7 @@ The following parameters can be used for USB passthrough:
 - deviceClass — USB device class (e.g., 224)
 - deviceSubclass — USB device subclass (e.g., 1)
 - deviceProtocol — USB device protocol (e.g., 1)
+- driverPath — the path to the kernel driver module (supports regular expressions, used only when the device has no valid interfaces)
 
 Note: Many USB devices are composite devices, meaning they expose multiple interfaces. When matching against interfaceClass, interfaceSubclass and interfaceProtocol, it is sufficient for at least one interface to match the rule.
 In practice, matching by interfaces is often more reliable than using deviceClass, since many real-world USB devices leave the device-level class fields unset or use generic values like 0 (defined at the interface level instead).
@@ -47,6 +48,15 @@ The following parameters can be used for PCI passthrough:
 - deviceClass — PCI device class (e.g., 2)
 - deviceSubclass — PCI device subclass (e.g., 128)
 - deviceProgIf — PCI device programming interface (e.g., 0)
+
+# Non-USB Input Devices (evdev)
+
+The following parameters can be used for evdev passthrough:
+
+- name — Device friendly name obtained via EVIOCGNAME system call (supports regular expressions)
+- pathTag — Device path tag (ID_PATH_TAG from udev, supports regular expressions)
+- property — The name of a udev property
+- value — The corresponding value of the udev property
 
 # Running
 

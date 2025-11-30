@@ -6,7 +6,7 @@ from typing import Any
 
 from vhotplug.evdev import EvdevInfo
 from vhotplug.pci import PCIInfo
-from vhotplug.usb import USBInfo, parse_usb_interfaces
+from vhotplug.usb import USBInfo, get_drivers_from_modaliases
 
 logger = logging.getLogger("vhotplug")
 
@@ -84,11 +84,14 @@ class Config:
             rule_vname,
             rule_pname,
         )
-        vname_match = rule_vname and re.match(rule_vname, usb_info.vendor_name or "", re.IGNORECASE)
-        pname_match = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
-        if vname_match or pname_match:
-            logger.debug("Match by vendor name / product name, description: %s", rule_description)
-            return True
+        try:
+            vname_match = rule_vname and re.match(rule_vname, usb_info.vendor_name or "", re.IGNORECASE)
+            pname_match = rule_pname and re.match(rule_pname, usb_info.product_name or "", re.IGNORECASE)
+            if vname_match or pname_match:
+                logger.debug("Match by vendor name / product name, description: %s", rule_description)
+                return True
+        except re.error:
+            logger.exception("Invalid regex pattern '%s' or '%s'", rule_vname, rule_pname)
 
         # Match by bus/port
         rule_bus = usb_rule.get("bus")
@@ -124,6 +127,7 @@ class Config:
                 return True
 
         # Match by interface class, subclass and protocol
+        has_valid_interface = False
         rule_interface_class = usb_rule.get("interfaceClass")
         rule_interface_subclass = usb_rule.get("interfaceSubclass")
         rule_interface_protocol = usb_rule.get("interfaceProtocol")
@@ -133,7 +137,7 @@ class Config:
             rule_interface_subclass,
             rule_interface_protocol,
         )
-        usb_interfaces = parse_usb_interfaces(usb_info.interfaces)
+        usb_interfaces = usb_info.get_interfaces()
         for interface in usb_interfaces:
             interface_class = interface["class"]
             interface_subclass = interface["subclass"]
@@ -144,6 +148,8 @@ class Config:
                 interface_subclass,
                 interface_protocol,
             )
+            if interface_class not in (None, 0, 0xFF):
+                has_valid_interface = True
             if rule_interface_class and rule_interface_class == interface_class:
                 subclass_match = not rule_interface_subclass or rule_interface_subclass == interface_subclass
                 protocol_match = not rule_interface_protocol or rule_interface_protocol == interface_protocol
@@ -153,6 +159,21 @@ class Config:
                         rule_description,
                     )
                     return True
+
+        # Matching by driver path is enabled when the device has no valid interface
+        if not has_valid_interface:
+            rule_driver_path = usb_rule.get("driverPath")
+            if rule_driver_path:
+                for driver in get_drivers_from_modaliases(
+                    usb_info.get_modaliases(), self.get_modprobe(), self.get_modinfo()
+                ):
+                    logger.debug("Checking %s against %s", rule_driver_path, driver)
+                    try:
+                        if driver and re.match(rule_driver_path, driver, re.IGNORECASE):
+                            logger.debug("Match by driver path, description: %s", rule_description)
+                            return True
+                    except re.error:
+                        logger.exception("Invalid regex pattern '%s'", rule_driver_path)
 
         return False
 
@@ -215,18 +236,24 @@ class Config:
         # Match by name
         rule_name = rule.get("name")
         logger.debug("Checking %s against %s", evdev_info.name, rule_name)
-        name_match = rule_name and re.match(rule_name, evdev_info.name or "", re.IGNORECASE)
-        if name_match:
-            logger.debug("Match by name, description: %s", rule_description)
-            return True
+        try:
+            name_match = rule_name and re.match(rule_name, evdev_info.name or "", re.IGNORECASE)
+            if name_match:
+                logger.debug("Match by name, description: %s", rule_description)
+                return True
+        except re.error:
+            logger.exception("Invalid regex pattern '%s'", rule_name)
 
         # Match by path tag
         rule_path_tag = rule.get("pathTag")
         logger.debug("Checking %s against %s", evdev_info.path_tag, rule_path_tag)
-        path_tag_match = rule_path_tag and re.match(rule_path_tag, evdev_info.path_tag or "", re.IGNORECASE)
-        if path_tag_match:
-            logger.debug("Match by path tag, description: %s", rule_description)
-            return True
+        try:
+            path_tag_match = rule_path_tag and re.match(rule_path_tag, evdev_info.path_tag or "", re.IGNORECASE)
+            if path_tag_match:
+                logger.debug("Match by path tag, description: %s", rule_description)
+                return True
+        except re.error:
+            logger.exception("Invalid regex pattern '%s'", rule_path_tag)
 
         # Match by property
         rule_property = rule.get("property")
@@ -387,3 +414,9 @@ class Config:
     def state_path(self) -> str:
         result: str = self.config.get("general", {}).get("statePath", "/var/lib/vhotplug/vhotplug.state")
         return result
+
+    def get_modprobe(self) -> str:
+        return str(self.config.get("general", {}).get("modprobe", "modprobe"))
+
+    def get_modinfo(self) -> str:
+        return str(self.config.get("general", {}).get("modinfo", "modinfo"))

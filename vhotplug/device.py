@@ -16,9 +16,9 @@ from vhotplug.pci import (
 )
 from vhotplug.usb import (
     USBInfo,
+    get_drivers_from_modaliases,
     get_usb_info,
     is_usb_device,
-    is_usb_hub,
     usb_device_by_bus_port,
     usb_device_by_node,
     usb_device_by_vid_pid,
@@ -414,9 +414,14 @@ async def attach_connected_usb(app_context: AppContext, vms_scope: list[str] | N
                 usb_info.device_protocol,
                 usb_info.interfaces,
             )
+            drivers = get_drivers_from_modaliases(
+                usb_info.get_modaliases(), app_context.config.get_modprobe(), app_context.config.get_modinfo()
+            )
+            for driver in drivers:
+                logger.debug("Device driver: %s", driver)
             log_device(device)
 
-            if is_usb_hub(usb_info.interfaces):
+            if usb_info.is_usb_hub():
                 logger.debug("USB device %s is a USB hub, skipping", usb_info.friendly_name())
                 continue
 
@@ -631,26 +636,26 @@ def get_usb_devices(app_context: AppContext, disconnected: bool) -> list[dict[st
         if not is_usb_device(device):
             continue
 
-        dev_info = get_usb_info(device)
+        usb_info = get_usb_info(device)
 
-        if is_usb_hub(dev_info.interfaces):
+        if usb_info.is_usb_hub():
             continue
 
-        if dev_info.is_boot_device(app_context.udev_context):
+        if usb_info.is_boot_device(app_context.udev_context):
             continue
 
-        res = app_context.config.vm_for_device(dev_info)
+        res = app_context.config.vm_for_device(usb_info)
         if res:
             # Get allowed vms or target vm
             allowed_vms = [res.target_vm] if res.target_vm else res.allowed_vms
             # Get current vm
-            current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
-            if app_context.dev_state.is_disconnected(dev_info):
+            current_vm_name = app_context.dev_state.get_vm_for_device(usb_info)
+            if app_context.dev_state.is_disconnected(usb_info):
                 current_vm_name = None
             elif disconnected:
                 continue
 
-            dev = dev_info.to_dict()
+            dev = usb_info.to_dict()
             dev["allowed_vms"] = allowed_vms
             dev["vm"] = current_vm_name
             dev_list.append(dev)

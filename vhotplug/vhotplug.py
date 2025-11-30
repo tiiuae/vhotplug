@@ -23,6 +23,7 @@ from vhotplug.device import (
 from vhotplug.devicestate import DeviceState
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
+from vhotplug.usb import get_drivers_from_modaliases
 
 logger = logging.getLogger("vhotplug")
 
@@ -46,6 +47,11 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 usb_info.device_protocol,
                 usb_info.interfaces,
             )
+            drivers = get_drivers_from_modaliases(
+                usb_info.get_modaliases(), app_context.config.get_modprobe(), app_context.config.get_modinfo()
+            )
+            for driver in drivers:
+                logger.info("Device driver: %s", driver)
 
             # Notify that USB device is connected to host
             if app_context.api_server:
