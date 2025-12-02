@@ -283,14 +283,10 @@ async def remove_device(app_context: AppContext, dev_info: USBInfo | PCIInfo) ->
     if not current_vm_name:
         raise RuntimeError(f"Device {dev_info.friendly_name()} is not attached to any VM")
 
-    # Find a rule for the device in the config file
-    res = app_context.config.vm_for_device(dev_info)
-    if not res:
-        raise RuntimeError(f"Device {dev_info.friendly_name()} doesn't match any rules")
-
     logger.info("Removing %s from %s", dev_info.friendly_name(), current_vm_name)
 
-    # Check if the VM is valid
+    # We can't check device rule the config here because USB devices don't have any properties on removal besides the device node
+    # We can only check if the VM name is valid
     vm = app_context.config.get_vm(current_vm_name)
     if not vm:
         raise RuntimeError(f"VM {current_vm_name} not found in the configuration file")
@@ -301,9 +297,13 @@ async def remove_device(app_context: AppContext, dev_info: USBInfo | PCIInfo) ->
         devices = get_iommu_group_devices(dev_info.address)
         if len(devices) > 1:
             logger.debug("Device %s has %s devices in the same IOMMU group", dev_info.friendly_name(), len(devices))
-            if res.pci_iommu_skip_if_shared:
-                logger.info("Skipping device since it shares IOMMU group with other devices (total: %s)", len(devices))
-                return
+
+            # Find a rule for the device in the config file
+            # TODO: save pci_iommu_add_all to the state file to avoid searching the device in config here
+            res = app_context.config.vm_for_device(dev_info)
+            if not res:
+                raise RuntimeError(f"Device {dev_info.friendly_name()} doesn't match any rules")
+
             if res.pci_iommu_add_all:
                 await _remove_iommu_group(app_context, devices, vm)
                 return
@@ -315,6 +315,8 @@ async def _remove_device_from_vm(app_context: AppContext, dev_info: USBInfo | PC
     """Removes device from VM, saves its state and sends a notification."""
     # Remove from VM
     await vmm_remove_device(app_context, vm, dev_info)
+
+    logger.info("Removed %s", dev_info.friendly_name())
 
     # Remove it from the state database
     app_context.dev_state.remove_vm_for_device(dev_info)
