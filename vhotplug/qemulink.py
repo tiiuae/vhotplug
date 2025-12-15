@@ -47,7 +47,8 @@ class QEMULink:
         return f"usb{usb_info.busnum}{usb_info.devnum}"
 
     def _qemu_id_pci(self, pci_info: PCIInfo) -> str:
-        return pci_info.runtime_id()
+        # Identifiers consist of letters, digits, '-', '.', '_', starting with a letter
+        return pci_info.runtime_id().replace(":", "-")
 
     def _qemu_id_evdev(self, evdev_info: EvdevInfo) -> str:
         return f"evdev-{evdev_info.sys_name}"
@@ -446,8 +447,7 @@ class QEMULink:
                 return
 
             if qemuid == "":
-                logger.error("PCI device %s qemu id is not set", pci_info.friendly_name())
-                return
+                raise RuntimeError(f"PCI device {pci_info.friendly_name()} qemu id is not set")
 
             await self._remove_pci_device_by_qemu_id(qemuid)
 

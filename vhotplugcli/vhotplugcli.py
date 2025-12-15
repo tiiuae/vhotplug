@@ -3,6 +3,7 @@ import fcntl
 import logging
 import socket
 import struct
+import time
 
 from vhotplugcli.apiclient import APIClient
 
@@ -158,6 +159,24 @@ def pci_resume(client: APIClient, vm: str) -> None:
     logger.info("Successfully resumed")
 
 
+def pci_vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None) -> None:
+    while True:
+        try:
+            client.connect()
+            res = client.pci_vmm_args(vm, qemu_bus_prefix)
+        except RuntimeError as e:
+            logger.warning(str(e))
+            time.sleep(1)
+            continue
+
+        if res.get("result") == "failed":
+            raise RuntimeError(f"Failed to get VMM args for PCI devices: {res.get('error')}")
+        args = res.get("vmm_args", [])
+        cmdline = " ".join(args)
+        print(cmdline, end="")
+        break
+
+
 def running_in_vm() -> bool:
     try:
         with open("/dev/vsock", "rb") as fd:
@@ -165,7 +184,8 @@ def running_in_vm() -> bool:
             fcntl.ioctl(fd, socket.IOCTL_VM_SOCKETS_GET_LOCAL_CID, buf)
             cid = struct.unpack("I", buf)[0]
             logger.debug("Local CID: %d", cid)
-            return cid not in (socket.VMADDR_CID_ANY, socket.VMADDR_CID_HOST)
+            # 1 = VMADDR_CID_LOCAL
+            return cid not in (socket.VMADDR_CID_ANY, socket.VMADDR_CID_HOST, 1)
     except OSError:
         return False
 
@@ -275,6 +295,11 @@ def main() -> int:
     pci_resume_parser = pci_sub.add_parser("resume", help="PCI resume")
     pci_resume_parser.add_argument("--vm", help="Virtual machine name")
     pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c, a.vm))
+
+    pci_vmm_args_parser = pci_sub.add_parser("vmmargs", help="Get VMM arguments for PCI devices")
+    pci_vmm_args_parser.add_argument("--vm", help="Virtual machine name")
+    pci_vmm_args_parser.add_argument("--qemu-bus-prefix", help="QEMU Bus Prefix")
+    pci_vmm_args_parser.set_defaults(func=lambda a, c: pci_vmm_args(c, a.vm, a.qemu_bus_prefix))
 
     args = parser.parse_args()
 

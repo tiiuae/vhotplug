@@ -148,6 +148,9 @@ class APIClient:
     def pci_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_resume", "vm": vm})
 
+    def pci_vmm_args(self, vm: str, qemu_bus_prefix: str | None) -> dict[str, Any]:
+        return self.send({"action": "pci_vmm_args", "vm": vm, "qemu_bus_prefix": qemu_bus_prefix})
+
     def recv_notifications(self, callback: Callable[[dict[str, Any]], None], reconnect_delay: int = 3) -> None:
         while True:
             try:

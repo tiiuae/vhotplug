@@ -58,7 +58,7 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 app_context.api_server.notify_usb_connected(usb_info)
 
             try:
-                res = await find_vm_for_device(app_context, usb_info)
+                res = find_vm_for_device(app_context, usb_info)
                 if res:
                     await attach_device(app_context, res, usb_info, True)
             except RuntimeError:

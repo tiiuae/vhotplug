@@ -1,7 +1,9 @@
 import asyncio
+import grp
 import json
 import logging
 import os
+import pwd
 import socket
 import threading
 from collections.abc import Callable
@@ -18,8 +20,9 @@ from vhotplug.device import (
     attach_existing_usb_device_by_vid_pid,
     detach_connected_pci,
     detach_connected_usb,
-    get_pci_devices,
-    get_usb_devices,
+    get_pci_device_list,
+    get_pci_vmm_args,
+    get_usb_device_list,
     remove_existing_pci_device,
     remove_existing_pci_device_by_vid_did,
     remove_existing_usb_device,
@@ -43,6 +46,9 @@ class APIServer:
         self.allowed_cids = api_config.get("allowedCids")
         self.cid = socket.VMADDR_CID_ANY
         self.uds_path = api_config.get("unixSocket", "/var/lib/vhotplug/vhotplug.sock")
+        self.uds_user = api_config.get("unixSocketUser", None)
+        self.uds_group = api_config.get("unixSocketGroup", None)
+        self.uds_mode = api_config.get("unixSocketMode", None)
         self.server_sockets: list[socket.socket] = []
         self.running = False
         self.clients: list[socket.socket] = []
@@ -62,6 +68,7 @@ class APIServer:
             "pci_detach": self._on_pci_detach,
             "pci_suspend": self._on_pci_suspend,
             "pci_resume": self._on_pci_resume,
+            "pci_vmm_args": self._on_pci_vmm_args,
         }
 
     def start(self) -> None:
@@ -89,6 +96,16 @@ class APIServer:
                     if os.path.exists(self.uds_path):
                         raise
                 sock.bind(self.uds_path)
+                if self.uds_user or self.uds_group:
+                    try:
+                        uid = pwd.getpwnam(self.uds_user).pw_uid if self.uds_user else -1
+                        gid = grp.getgrnam(self.uds_group).gr_gid if self.uds_group else -1
+                        os.chown(self.uds_path, uid, gid)
+                    except KeyError as e:
+                        logger.warning("Failed to chown UNIX socket: %s", e)
+                if self.uds_mode:
+                    os.chmod(self.uds_path, int(self.uds_mode, 8))
+
                 logger.info("API server listening on UNIX socket %s", self.uds_path)
             else:
                 raise ValueError("API transport must be either vsock, tcp or unix")
@@ -276,7 +293,7 @@ class APIServer:
 
     def _on_usb_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
         disconnected = msg.get("disconnected", False)
-        return {"result": "ok", "usb_devices": get_usb_devices(self.app_context, disconnected)}
+        return {"result": "ok", "usb_devices": get_usb_device_list(self.app_context, disconnected)}
 
     def _on_usb_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         device_node = msg.get("device_node")
@@ -351,7 +368,7 @@ class APIServer:
 
     def _on_pci_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
         disconnected = msg.get("disconnected", False)
-        return {"result": "ok", "pci_devices": get_pci_devices(self.app_context, disconnected)}
+        return {"result": "ok", "pci_devices": get_pci_device_list(self.app_context, disconnected)}
 
     def _on_pci_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         address = msg.get("address")
@@ -412,3 +429,11 @@ class APIServer:
             attach_connected_pci(self.app_context, [vm] if vm else None), self.loop
         ).result()
         return {"result": "ok"}
+
+    def _on_pci_vmm_args(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
+        vm = msg.get("vm")
+        if not vm:
+            raise RuntimeError("VM name is required")
+        qemu_bus_prefix = msg.get("qemu_bus_prefix")
+        args = get_pci_vmm_args(self.app_context, vm, qemu_bus_prefix)
+        return {"result": "ok", "vmm_args": args}

@@ -109,3 +109,29 @@ async def vmm_is_pci_dev_connected(vm: dict[str, str], pci_info: PCIInfo) -> boo
         qemu = QEMULink(vm_socket)
         return await qemu.is_pci_dev_connected(pci_info)
     return False
+
+
+def vmm_args_pci(vm: dict[str, str], dev: PCIInfo, n: int, qemu_bus_prefix: str | None) -> list[str]:
+    vm_type = vm.get("type")
+    sys_name = dev.address
+    if vm_type == "qemu":
+        qemuid = f"vhp-pci-{n}"
+        bus = f",bus={qemu_bus_prefix}{n}" if qemu_bus_prefix else ""
+        return ["-device", f"vfio-pci,host={sys_name},multifunction=on,id={qemuid}{bus}"]
+    if vm_type == "crosvm":
+        return ["--vfio", f"/sys/bus/pci/devices/{sys_name},iommu=viommu"]
+    if vm_type == "cloud-hypervisor":
+        return ["--device", f"path=/sys/bus/pci/devices/{sys_name}"]
+    raise RuntimeError(f"Unsupported vm type: {vm_type}")
+
+
+def vmm_args_evdev(vm: dict[str, str], dev: dict[str, str]) -> list[str]:
+    vm_type = vm.get("type")
+    device_node = dev["device_node"]
+    if vm_type == "qemu":
+        return ["-device", f"'virtio-input-host-pci,evdev={device_node}'"]
+    if vm_type == "crosvm":
+        return ["--input", f"evdev[path={device_node}]"]
+    if vm_type == "cloud-hypervisor":
+        raise RuntimeError("Cloud Hypervisor doesn't support evdev passthrough")
+    raise RuntimeError(f"Unsupported vm type: {vm_type}")
