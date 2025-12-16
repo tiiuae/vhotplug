@@ -621,7 +621,7 @@ async def attach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
 
     # Get a list of all PCI devices for passthrough but do not include devices from IOMMU group
     # They are checked and attached atomically in the attach_device function with VM pause/resume
-    devices = _get_pci_devices(app_context, None, False)
+    devices = _get_pci_devices(app_context, False, False)
 
     # Attach to VMs
     for device in devices:
