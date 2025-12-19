@@ -123,6 +123,18 @@
       ]
     }
   ],
+  "acpiPassthrough": [
+    {
+      "description": "NHLT ACPI Table for VM1",
+      "targetVm": "vm1",
+      "allow": [
+        {
+          "acpiTable": "/sys/firmware/acpi/tables/NHLT",
+          "setUser": "microvm"
+        }
+      ]
+    }
+  ],
   "vms": [
     {
       "name": "vm1",

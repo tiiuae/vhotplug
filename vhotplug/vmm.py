@@ -129,9 +129,20 @@ def vmm_args_evdev(vm: dict[str, str], dev: dict[str, str]) -> list[str]:
     vm_type = vm.get("type")
     device_node = dev["device_node"]
     if vm_type == "qemu":
-        return ["-device", f"'virtio-input-host-pci,evdev={device_node}'"]
+        return ["-device", f"virtio-input-host-pci,evdev={device_node}"]
     if vm_type == "crosvm":
         return ["--input", f"evdev[path={device_node}]"]
     if vm_type == "cloud-hypervisor":
-        raise RuntimeError("Cloud Hypervisor doesn't support evdev passthrough")
+        logger.error("Cloud Hypervisor doesn't support evdev passthrough")
+    raise RuntimeError(f"Unsupported vm type: {vm_type}")
+
+
+def vmm_args_acpi_table(vm: dict[str, str], acpi_table: str) -> list[str]:
+    vm_type = vm.get("type")
+    if vm_type == "qemu":
+        return ["-acpitable", f"file={acpi_table}"]
+    if vm_type == "crosvm":
+        logger.error("Crosvm doesn't support ACPI table passthrough")
+    if vm_type == "cloud-hypervisor":
+        logger.error("Cloud Hypervisor doesn't support ACPI table passthrough")
     raise RuntimeError(f"Unsupported vm type: {vm_type}")

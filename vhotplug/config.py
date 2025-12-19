@@ -21,6 +21,13 @@ class PassthroughInfo:
     order: int = 0
 
 
+@dataclass
+class AcpiInfo:
+    acpi_table: str
+    set_user: str | None
+    set_group: str | None
+
+
 class Config:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -420,3 +427,39 @@ class Config:
 
     def get_modinfo(self) -> str:
         return str(self.config.get("general", {}).get("modinfo", "modinfo"))
+
+    def get_acpi_tables(self, vm_name: str) -> list[AcpiInfo]:
+        acpi_tables: list[AcpiInfo] = []
+        try:
+            logger.debug("Searching ACPI tables for %s", vm_name)
+
+            for rule in self.config.get("acpiPassthrough", []):
+                rule_name = rule.get("description", "")
+                logger.debug("Checking %s", rule_name)
+
+                if self._disabled(rule):
+                    continue
+
+                target_vm = rule.get("targetVm")
+                if not target_vm:
+                    logger.error("No target VM defined for rule %s", rule_name)
+                    continue
+
+                if target_vm != vm_name:
+                    continue
+
+                for allow in rule.get("allow", []):
+                    if self._disabled(allow):
+                        continue
+
+                    allow_description = allow.get("description", "")
+                    logger.debug("Allow: %s", allow_description)
+
+                    acpi_table = allow.get("acpiTable")
+                    if acpi_table:
+                        logger.debug("Found ACPI table %s for %s", acpi_table, vm_name)
+                        acpi_tables.append(AcpiInfo(acpi_table, allow.get("setUser"), allow.get("setGroup")))
+
+        except (AttributeError, TypeError):
+            logger.exception("Failed to find ACPI tables for %s", vm_name)
+        return acpi_tables

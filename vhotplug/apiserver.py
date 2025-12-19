@@ -21,8 +21,8 @@ from vhotplug.device import (
     detach_connected_pci,
     detach_connected_usb,
     get_pci_device_list,
-    get_pci_vmm_args,
     get_usb_device_list,
+    get_vmm_args,
     remove_existing_pci_device,
     remove_existing_pci_device_by_vid_did,
     remove_existing_usb_device,
@@ -68,7 +68,7 @@ class APIServer:
             "pci_detach": self._on_pci_detach,
             "pci_suspend": self._on_pci_suspend,
             "pci_resume": self._on_pci_resume,
-            "pci_vmm_args": self._on_pci_vmm_args,
+            "vmm_args": self._on_vmm_args,
         }
 
     def start(self) -> None:
@@ -430,10 +430,10 @@ class APIServer:
         ).result()
         return {"result": "ok"}
 
-    def _on_pci_vmm_args(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
+    def _on_vmm_args(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
         vm = msg.get("vm")
         if not vm:
             raise RuntimeError("VM name is required")
         qemu_bus_prefix = msg.get("qemu_bus_prefix")
-        args = get_pci_vmm_args(self.app_context, vm, qemu_bus_prefix)
+        args = get_vmm_args(self.app_context, vm, qemu_bus_prefix)
         return {"result": "ok", "vmm_args": args}

@@ -159,11 +159,11 @@ def pci_resume(client: APIClient, vm: str) -> None:
     logger.info("Successfully resumed")
 
 
-def pci_vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None) -> None:
+def vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None) -> None:
     while True:
         try:
             client.connect()
-            res = client.pci_vmm_args(vm, qemu_bus_prefix)
+            res = client.vmm_args(vm, qemu_bus_prefix)
         except RuntimeError as e:
             logger.warning(str(e))
             time.sleep(1)
@@ -296,10 +296,13 @@ def main() -> int:
     pci_resume_parser.add_argument("--vm", help="Virtual machine name")
     pci_resume_parser.set_defaults(func=lambda a, c: pci_resume(c, a.vm))
 
-    pci_vmm_args_parser = pci_sub.add_parser("vmmargs", help="Get VMM arguments for PCI devices")
-    pci_vmm_args_parser.add_argument("--vm", help="Virtual machine name")
-    pci_vmm_args_parser.add_argument("--qemu-bus-prefix", help="QEMU Bus Prefix")
-    pci_vmm_args_parser.set_defaults(func=lambda a, c: pci_vmm_args(c, a.vm, a.qemu_bus_prefix))
+    vmm_parser = subparsers.add_parser("vmm", help="Manage VMM arguments")
+    vmm_sub = vmm_parser.add_subparsers(dest="action", required=True)
+
+    vmm_args_parser = vmm_sub.add_parser("args", help="Get VMM arguments")
+    vmm_args_parser.add_argument("--vm", help="Virtual machine name")
+    vmm_args_parser.add_argument("--qemu-bus-prefix", help="QEMU Bus Prefix")
+    vmm_args_parser.set_defaults(func=lambda a, c: vmm_args(c, a.vm, a.qemu_bus_prefix))
 
     args = parser.parse_args()
 

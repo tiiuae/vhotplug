@@ -1,4 +1,7 @@
+import grp
 import logging
+import os
+import pwd
 from typing import Any, TypedDict
 
 import pyudev
@@ -25,6 +28,7 @@ from vhotplug.usb import (
 )
 from vhotplug.vmm import (
     vmm_add_device,
+    vmm_args_acpi_table,
     vmm_args_pci,
     vmm_is_pci_dev_connected,
     vmm_pause,
@@ -812,12 +816,13 @@ async def attach_connected_evdev(app_context: AppContext) -> None:
                     logger.exception("Failed to attach evdev device %s", evdev_info.friendly_name())
 
 
-def get_pci_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None) -> list[str]:
-    """Returns a list of VMM arguments for all PCI devices that match the rules from the config."""
+def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None) -> list[str]:
+    """Returns a list of VMM arguments for all devices that match the rules from the config."""
     # Get VM details from the config
     vm = app_context.config.get_vm(vm_name)
     if not vm:
         raise RuntimeError(f"VM {vm_name} is not found in the config file")
+
     # Get all PCI devices that match the rules in the config
     args: list[str] = []
     devs = _get_pci_devices(app_context, None, True)
@@ -838,5 +843,18 @@ def get_pci_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str
         dev_number = dev_number + 1
         args.extend(dev_args)
 
-    logger.info("VMM args: %s", args)
+    # Get ACPI tables for the VM
+    for table in app_context.config.get_acpi_tables(vm_name):
+        dev_args = vmm_args_acpi_table(vm, table.acpi_table)
+        if table.set_user or table.set_group:
+            try:
+                uid = pwd.getpwnam(table.set_user).pw_uid if table.set_user else -1
+                gid = grp.getgrnam(table.set_group).gr_gid if table.set_group else -1
+                os.chown(table.acpi_table, uid, gid)
+            except KeyError as e:
+                logger.warning("Failed to chown ACPI table %s: %s", table.acpi_table, e)
+
+        args.extend(dev_args)
+
+    logger.info("VMM args for %s: %s", vm_name, args)
     return args
