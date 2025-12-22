@@ -125,11 +125,12 @@ def vmm_args_pci(vm: dict[str, str], dev: PCIInfo, n: int, qemu_bus_prefix: str 
     raise RuntimeError(f"Unsupported vm type: {vm_type}")
 
 
-def vmm_args_evdev(vm: dict[str, str], dev: dict[str, str]) -> list[str]:
+def vmm_args_evdev(vm: dict[str, str], dev: EvdevInfo, n: int) -> list[str]:
     vm_type = vm.get("type")
-    device_node = dev["device_node"]
+    device_node = dev.device_node
     if vm_type == "qemu":
-        return ["-device", f"virtio-input-host-pci,evdev={device_node}"]
+        qemuid = f"vhp-evdev-{n}"
+        return ["-device", f"virtio-input-host-pci,evdev={device_node},id={qemuid}"]
     if vm_type == "crosvm":
         return ["--input", f"evdev[path={device_node}]"]
     if vm_type == "cloud-hypervisor":

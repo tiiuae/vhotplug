@@ -85,6 +85,10 @@ class QEMULink:
             if re.search(r"PCI: slot \d+ function \d+ already occupied by", str(last_error)):
                 break
 
+            # Don't retry when evdev device is busy
+            if str(last_error).endswith("failed to get exclusive access: Device or resource busy"):
+                break
+
             if attempt < self.vm_retry_count:
                 logger.info("Retrying in %s seconds...", self.vm_retry_timeout)
                 await asyncio.sleep(self.vm_retry_timeout)
@@ -318,7 +322,7 @@ class QEMULink:
                 )
                 logger.info("Attached evdev device %s", evdev_info.device_node)
             except RuntimeError as e:
-                if str(e).endswith("Device or resource busy"):
+                if str(e).endswith("failed to get exclusive access: Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")
                     return
 

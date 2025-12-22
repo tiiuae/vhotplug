@@ -8,7 +8,7 @@ import pyudev
 
 from vhotplug.appcontext import AppContext
 from vhotplug.config import PassthroughInfo
-from vhotplug.evdev import evdev_test_grab, get_evdev_info, is_input_device
+from vhotplug.evdev import EvdevInfo, evdev_test_grab, get_evdev_info, is_input_device
 from vhotplug.pci import (
     PCIInfo,
     get_iommu_group_devices,
@@ -29,6 +29,7 @@ from vhotplug.usb import (
 from vhotplug.vmm import (
     vmm_add_device,
     vmm_args_acpi_table,
+    vmm_args_evdev,
     vmm_args_pci,
     vmm_is_pci_dev_connected,
     vmm_pause,
@@ -629,8 +630,17 @@ async def attach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
 
     # Attach to VMs
     for device in devices:
+        # Get VM details from the config
+        passthrough_info = device["passthrough_info"]
+        vm = app_context.config.get_vm(passthrough_info.target_vm)
+        if not vm:
+            raise RuntimeError(f"VM {passthrough_info.target_vm} is not found in the config file")
+
+        if vm.get("type") != "qemu":
+            continue
+
         try:
-            await attach_device(app_context, device["passthrough_info"], device["pci_info"], False, vms_scope)
+            await attach_device(app_context, passthrough_info, device["pci_info"], False, vms_scope)
         except RuntimeError:
             logger.exception("Failed to attach PCI device %s", device["pci_info"].friendly_name())
 
@@ -772,14 +782,19 @@ def get_pci_device_list(app_context: AppContext, disconnected: bool) -> list[dic
     return dev_list
 
 
-async def attach_connected_evdev(app_context: AppContext) -> None:
-    """Finds non-USB evdev devices and attaches them to the selected VM."""
-    logger.info("Checking connected non-USB input devices")
+def _get_evdev_devices(app_context: AppContext) -> list[Any]:
+    """Finds non-USB evdev devices that match the rules from the config."""
+
+    class Device(TypedDict):
+        evdev_info: EvdevInfo
+        target_vm: str
+
+    dev_list: list[Device] = []
     for device in app_context.udev_context.list_devices(subsystem="input"):
         bus = device.properties.get("ID_BUS")
         if is_input_device(device) and bus != "usb":
             evdev_info = get_evdev_info(device)
-            logger.info(
+            logger.debug(
                 "Found event device: %s, bus: %s, path tag: %s",
                 evdev_info.friendly_name(),
                 evdev_info.bus,
@@ -797,23 +812,40 @@ async def attach_connected_evdev(app_context: AppContext) -> None:
                 logger.error("Target VM is not defined for %s", evdev_info.friendly_name())
                 continue
 
-            # Get VM details from the config
-            vm = app_context.config.get_vm(res.target_vm)
-            if not vm:
-                logger.error("VM %s is not found in the config file", res.target_vm)
-                continue
+            dev_list.append({"evdev_info": evdev_info, "target_vm": res.target_vm})
 
-            if await evdev_test_grab(device):
-                logger.info(
-                    "Device %s is grabbed by another process, it is likely already connected to the VM",
-                    evdev_info.friendly_name(),
-                )
-            else:
-                logger.info("Attaching %s to %s", evdev_info.friendly_name(), res.target_vm)
-                try:
-                    await vmm_add_device(app_context, vm, evdev_info)
-                except RuntimeError:
-                    logger.exception("Failed to attach evdev device %s", evdev_info.friendly_name())
+    return dev_list
+
+
+async def attach_connected_evdev(app_context: AppContext) -> None:
+    """Finds non-USB evdev devices and attaches them to the selected VM."""
+    logger.info("Checking connected non-USB input devices")
+    devs = _get_evdev_devices(app_context)
+    for dev in devs:
+        evdev_info = dev["evdev_info"]
+        target_vm = dev["target_vm"]
+
+        # Get VM details from the config
+        vm = app_context.config.get_vm(target_vm)
+        if not vm:
+            logger.error("VM %s is not found in the config file", target_vm)
+            continue
+
+        if vm.get("type") != "qemu":
+            continue
+
+        if await evdev_test_grab(evdev_info.device_node):
+            logger.debug(
+                "Device %s is grabbed by another process, it is likely already connected to the VM",
+                evdev_info.friendly_name(),
+            )
+            continue
+
+        logger.info("Attaching %s to %s", evdev_info.friendly_name(), target_vm)
+        try:
+            await vmm_add_device(app_context, vm, evdev_info)
+        except RuntimeError:
+            logger.exception("Failed to attach evdev device %s", evdev_info.friendly_name())
 
 
 def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None) -> list[str]:
@@ -825,9 +857,8 @@ def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | N
 
     # Get all PCI devices that match the rules in the config
     args: list[str] = []
-    devs = _get_pci_devices(app_context, None, True)
     dev_number = 0
-    for dev in devs:
+    for dev in _get_pci_devices(app_context, None, True):
         # Filter by target VM
         passthrough_info = dev["passthrough_info"]
         if passthrough_info.target_vm != vm_name:
@@ -854,6 +885,17 @@ def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | N
             except KeyError as e:
                 logger.warning("Failed to chown ACPI table %s: %s", table.acpi_table, e)
 
+        args.extend(dev_args)
+
+    # Get all evdev devices that match the rules in the config
+    dev_number = 0
+    for dev in _get_evdev_devices(app_context):
+        evdev_info = dev["evdev_info"]
+        target_vm = dev["target_vm"]
+        if target_vm != vm_name:
+            continue
+        dev_args = vmm_args_evdev(vm, evdev_info, dev_number)
+        dev_number = dev_number + 1
         args.extend(dev_args)
 
     logger.info("VMM args for %s: %s", vm_name, args)

@@ -90,8 +90,11 @@ class CrosvmLink:
                         # This helps prevent I/O errors and allows USB to be successfully attached once the VM boots
                         logger.info("No available port, removing all devices")
                         devices = await self.usb_list()
-                        for index, _, _ in devices:
-                            await self.remove_usb_device_by_id(index)
+                        try:
+                            for index, _, _ in devices:
+                                await self.remove_usb_device_by_id(index)
+                        except RuntimeError as e:
+                            logger.warning("Failed to remove: %s", str(e))
                     else:
                         logger.warning("Unexpected result: %s", r[0])
                         logger.warning("Out: %s", stdout_str)
