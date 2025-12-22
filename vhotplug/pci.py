@@ -115,17 +115,13 @@ def _get_pci_driver(pci_address: str) -> str | None:
     return None
 
 
-def _bind_vfio_pci(pci_address: str) -> None:
-    """Checks the driver assigned for the device and changes it to vfio-pci."""
+def _unbind_driver(pci_address: str) -> None:
+    """Unbind current driver."""
     device_path = f"/sys/bus/pci/devices/{pci_address}"
 
     driver = _get_pci_driver(pci_address)
-    if driver == "vfio-pci":
-        return
 
-    # Unbind current driver
     if driver:
-        logger.info("Device %s uses driver %s", pci_address, driver)
         for _ in range(1, 5):
             try:
                 with open(f"{device_path}/driver/unbind", "w", encoding="utf-8") as f:
@@ -139,6 +135,21 @@ def _bind_vfio_pci(pci_address: str) -> None:
             logger.error("Failed to unbind %s from %s after 5 attempts", driver, device_path)
     else:
         logger.debug("Device %s has no driver assigned", pci_address)
+
+
+def _bind_vfio_pci(pci_address: str) -> None:
+    """Checks the driver assigned for the device and changes it to vfio-pci."""
+    device_path = f"/sys/bus/pci/devices/{pci_address}"
+
+    driver = _get_pci_driver(pci_address)
+    if driver == "vfio-pci":
+        return
+
+    if driver:
+        logger.info("Device %s uses driver %s", pci_address, driver)
+
+        # Unbind current driver
+        _unbind_driver(pci_address)
 
     # Bind vfio-pci driver
     with open(f"{device_path}/driver_override", "w", encoding="utf-8") as f:

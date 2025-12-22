@@ -122,8 +122,7 @@ async def _attach_iommu_group(app_context: AppContext, devices: list[str], vm: d
                             current_vm,
                             vm_name,
                         )
-                    else:
-                        continue
+                    continue
 
                 if not vm_paused:
                     await vmm_pause(vm)
