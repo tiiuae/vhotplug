@@ -2,6 +2,7 @@ import grp
 import logging
 import os
 import pwd
+from pathlib import Path
 from typing import Any, TypedDict
 
 import pyudev
@@ -875,15 +876,20 @@ def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | N
 
     # Get ACPI tables for the VM
     for table in app_context.config.get_acpi_tables(vm_name):
-        dev_args = vmm_args_acpi_table(vm, table.acpi_table)
+        if not Path(table.acpi_table).is_file():
+            logger.warning("ACPI table %s doesn't exist on the system", table.acpi_table)
+            continue
+
         if table.set_user or table.set_group:
             try:
                 uid = pwd.getpwnam(table.set_user).pw_uid if table.set_user else -1
                 gid = grp.getgrnam(table.set_group).gr_gid if table.set_group else -1
                 os.chown(table.acpi_table, uid, gid)
-            except KeyError as e:
+            except (KeyError, OSError) as e:
                 logger.warning("Failed to chown ACPI table %s: %s", table.acpi_table, e)
+                continue
 
+        dev_args = vmm_args_acpi_table(vm, table.acpi_table)
         args.extend(dev_args)
 
     # Get all evdev devices that match the rules in the config
