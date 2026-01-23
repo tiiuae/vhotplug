@@ -19,15 +19,18 @@ def usb_attach(
     vid: str | None,
     pid: str | None,
     vm: str,
+    tag: str | None,
 ) -> None:
-    if not devnode and not (bus and port) and not (vid and pid):
-        raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
+    if not devnode and not (bus and port) and not (vid and pid) and not tag:
+        raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid or --tag")
 
     client.connect()
     if devnode:
         res = client.usb_attach(devnode, vm)
     elif bus and port:
         res = client.usb_attach_by_bus_port(bus, port, vm)
+    elif tag:
+        res = client.usb_attach_by_tag(tag)
     else:
         assert vid is not None and pid is not None, "vid and pid must be provided"
         res = client.usb_attach_by_vid_pid(vid, pid, vm)
@@ -44,15 +47,18 @@ def usb_detach(
     port: int | None,
     vid: str | None,
     pid: str | None,
+    tag: str | None,
 ) -> None:
-    if not devnode and not (bus and port) and not (vid and pid):
-        raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid")
+    if not devnode and not (bus and port) and not (vid and pid) and not tag:
+        raise RuntimeError("You must specify either --devnode or --bus and --port or --vid and --pid or --tag")
 
     client.connect()
     if devnode:
         res = client.usb_detach(devnode)
     elif bus and port:
         res = client.usb_detach_by_bus_port(bus, port)
+    elif tag:
+        res = client.usb_detach_by_tag(tag)
     else:
         assert vid is not None and pid is not None, "vid and pid must be provided"
         res = client.usb_detach_by_vid_pid(vid, pid)
@@ -62,9 +68,9 @@ def usb_detach(
     logger.info("Successfully detached")
 
 
-def usb_list(client: APIClient, disconnected: bool, short: bool) -> None:
+def usb_list(client: APIClient, disconnected: bool, short: bool, tag: str | None) -> None:
     client.connect()
-    res = client.usb_list(disconnected)
+    res = client.usb_list(disconnected, tag)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to get USB list: {res.get('error')}")
     logger.debug("USB list: %s", res)
@@ -97,13 +103,17 @@ def listen_for_notifications(client: APIClient) -> None:
     client.recv_notifications(callback=logger.info)
 
 
-def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str | None, vm: str) -> None:
-    if not address and not (vid and did):
-        raise RuntimeError("You must specify either --address or --vid and --did")
+def pci_attach(
+    client: APIClient, address: str | None, vid: str | None, did: str | None, vm: str, tag: str | None
+) -> None:
+    if not address and not (vid and did) and not tag:
+        raise RuntimeError("You must specify either --address or --vid and --did or --tag")
 
     client.connect()
     if address:
         res = client.pci_attach(address, vm)
+    elif tag:
+        res = client.pci_attach_by_tag(tag)
     else:
         assert vid is not None and did is not None, "vid and did must be provided"
         res = client.pci_attach_by_vid_did(vid, did, vm)
@@ -113,13 +123,15 @@ def pci_attach(client: APIClient, address: str | None, vid: str | None, did: str
     logger.info("Successfully attached")
 
 
-def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str | None) -> None:
-    if not address and not (vid and did):
-        raise RuntimeError("You must specify either --address or --vid and --did")
+def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str | None, tag: str | None) -> None:
+    if not address and not (vid and did) and not tag:
+        raise RuntimeError("You must specify either --address or --vid and --did or --tag")
 
     client.connect()
     if address:
         res = client.pci_detach(address)
+    elif tag:
+        res = client.pci_detach_by_tag(tag)
     else:
         assert vid is not None and did is not None, "vid and did must be provided"
         res = client.pci_detach_by_vid_did(vid, did)
@@ -129,9 +141,9 @@ def pci_detach(client: APIClient, address: str | None, vid: str | None, did: str
     logger.info("Successfully detached")
 
 
-def pci_list(client: APIClient, disconnected: bool, short: bool) -> None:
+def pci_list(client: APIClient, disconnected: bool, short: bool, tag: str | None) -> None:
     client.connect()
-    res = client.pci_list(disconnected)
+    res = client.pci_list(disconnected, tag)
     if res.get("result") == "failed":
         raise RuntimeError(f"Failed to get PCI list: {res.get('error')}")
     logger.debug("PCI list: %s", res)
@@ -241,7 +253,8 @@ def main() -> int:
     usb_attach_parser.add_argument("--vid", help="USB Vendor ID")
     usb_attach_parser.add_argument("--pid", help="USB Product ID")
     usb_attach_parser.add_argument("--vm", help="Virtual machine name")
-    usb_attach_parser.set_defaults(func=lambda a, c: usb_attach(c, a.devnode, a.bus, a.port, a.vid, a.pid, a.vm))
+    usb_attach_parser.add_argument("--tag", help="Tag")
+    usb_attach_parser.set_defaults(func=lambda a, c: usb_attach(c, a.devnode, a.bus, a.port, a.vid, a.pid, a.vm, a.tag))
 
     usb_detach_parser = usb_sub.add_parser("detach", help="Detach USB device")
     usb_detach_parser.add_argument("--devnode", help="Path to USB device node (/dev/bus/usb/...)")
@@ -249,12 +262,14 @@ def main() -> int:
     usb_detach_parser.add_argument("--port", type=int, help="USB port")
     usb_detach_parser.add_argument("--vid", help="USB Vendor ID")
     usb_detach_parser.add_argument("--pid", help="USB Product ID")
-    usb_detach_parser.set_defaults(func=lambda a, c: usb_detach(c, a.devnode, a.bus, a.port, a.vid, a.pid))
+    usb_detach_parser.add_argument("--tag", help="Tag")
+    usb_detach_parser.set_defaults(func=lambda a, c: usb_detach(c, a.devnode, a.bus, a.port, a.vid, a.pid, a.tag))
 
     usb_list_parser = usb_sub.add_parser("list", help="Get USB list")
     usb_list_parser.add_argument("--disconnected", help="Show only disconnected devices", action="store_true")
     usb_list_parser.add_argument("--short", help="Show device names only, without details", action="store_true")
-    usb_list_parser.set_defaults(func=lambda a, c: usb_list(c, a.disconnected, a.short))
+    usb_list_parser.add_argument("--tag", help="Tag")
+    usb_list_parser.set_defaults(func=lambda a, c: usb_list(c, a.disconnected, a.short, a.tag))
 
     usb_suspend_parser = usb_sub.add_parser("suspend", help="USB suspend")
     usb_suspend_parser.add_argument("--vm", help="Virtual machine name")
@@ -275,18 +290,21 @@ def main() -> int:
     pci_attach_parser.add_argument("--vid", help="USB Vendor ID")
     pci_attach_parser.add_argument("--did", help="USB Device ID")
     pci_attach_parser.add_argument("--vm", help="Virtual machine name")
-    pci_attach_parser.set_defaults(func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm))
+    pci_attach_parser.add_argument("--tag", help="Tag")
+    pci_attach_parser.set_defaults(func=lambda a, c: pci_attach(c, a.address, a.vid, a.did, a.vm, a.tag))
 
     pci_detach_parser = pci_sub.add_parser("detach", help="Detach PCI device")
     pci_detach_parser.add_argument("--address", help="PCI Address (e.g., 0000:00:01.0)")
     pci_detach_parser.add_argument("--vid", help="PCI Vendor ID")
     pci_detach_parser.add_argument("--did", help="PCI Device ID")
-    pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did))
+    pci_detach_parser.add_argument("--tag", help="Tag")
+    pci_detach_parser.set_defaults(func=lambda a, c: pci_detach(c, a.address, a.vid, a.did, a.tag))
 
     pci_list_parser = pci_sub.add_parser("list", help="Get PCI list")
     pci_list_parser.add_argument("--disconnected", help="Show only disconnected devices", action="store_true")
     pci_list_parser.add_argument("--short", help="Show device names only, without details", action="store_true")
-    pci_list_parser.set_defaults(func=lambda a, c: pci_list(c, a.disconnected, a.short))
+    pci_list_parser.add_argument("--tag", help="Tag")
+    pci_list_parser.set_defaults(func=lambda a, c: pci_list(c, a.disconnected, a.short, a.tag))
 
     pci_suspend_parser = pci_sub.add_parser("suspend", help="PCI suspend")
     pci_suspend_parser.add_argument("--vm", help="Virtual machine name")

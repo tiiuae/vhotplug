@@ -100,8 +100,8 @@ class APIClient:
         if response.get("result") != "ok":
             logger.error("Failed to enable notifications: %s", response)
 
-    def usb_list(self, disconnected: bool) -> dict[str, Any]:
-        return self.send({"action": "usb_list", "disconnected": disconnected})
+    def usb_list(self, disconnected: bool, tag: str | None) -> dict[str, Any]:
+        return self.send({"action": "usb_list", "disconnected": disconnected, "tag": tag})
 
     def usb_attach(self, device_node: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_attach", "device_node": device_node, "vm": vm})
@@ -112,6 +112,9 @@ class APIClient:
     def usb_attach_by_vid_pid(self, vid: str, pid: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_attach", "vid": vid, "pid": pid, "vm": vm})
 
+    def usb_attach_by_tag(self, tag: str) -> dict[str, Any]:
+        return self.send({"action": "usb_attach", "tag": tag})
+
     def usb_detach(self, device_node: str) -> dict[str, Any]:
         return self.send({"action": "usb_detach", "device_node": device_node})
 
@@ -121,14 +124,17 @@ class APIClient:
     def usb_detach_by_vid_pid(self, vid: str, pid: str) -> dict[str, Any]:
         return self.send({"action": "usb_detach", "vid": vid, "pid": pid})
 
+    def usb_detach_by_tag(self, tag: str) -> dict[str, Any]:
+        return self.send({"action": "usb_detach", "tag": tag})
+
     def usb_suspend(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_suspend", "vm": vm})
 
     def usb_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_resume", "vm": vm})
 
-    def pci_list(self, disconnected: bool) -> dict[str, Any]:
-        return self.send({"action": "pci_list", "disconnected": disconnected})
+    def pci_list(self, disconnected: bool, tag: str | None) -> dict[str, Any]:
+        return self.send({"action": "pci_list", "disconnected": disconnected, "tag": tag})
 
     def pci_attach(self, address: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_attach", "address": address, "vm": vm})
@@ -136,11 +142,17 @@ class APIClient:
     def pci_attach_by_vid_did(self, vid: str, did: str, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_attach", "vid": vid, "did": did, "vm": vm})
 
+    def pci_attach_by_tag(self, tag: str) -> dict[str, Any]:
+        return self.send({"action": "pci_attach", "tag": tag})
+
     def pci_detach(self, address: str) -> dict[str, Any]:
         return self.send({"action": "pci_detach", "address": address})
 
     def pci_detach_by_vid_did(self, vid: str, did: str) -> dict[str, Any]:
         return self.send({"action": "pci_detach", "vid": vid, "did": did})
+
+    def pci_detach_by_tag(self, tag: str) -> dict[str, Any]:
+        return self.send({"action": "pci_detach", "tag": tag})
 
     def pci_suspend(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_suspend", "vm": vm})

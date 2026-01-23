@@ -380,6 +380,11 @@ async def attach_existing_usb_device_by_vid_pid(
     await _attach_existing_device(app_context, usb_info, selected_vm)
 
 
+async def attach_existing_usb_devices_by_tag(app_context: AppContext, tag: str) -> None:
+    """Find USB devices by tag and attach to VM."""
+    await attach_connected_usb(app_context, tag=tag)
+
+
 async def remove_existing_usb_device(app_context: AppContext, device_node: str, permanent: bool = False) -> None:
     device = usb_device_by_node(app_context, device_node)
     if not device:
@@ -408,10 +413,19 @@ async def remove_existing_usb_device_by_vid_pid(
     await _remove_existing_device(app_context, usb_info, permanent)
 
 
-async def attach_connected_usb(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
+async def remove_existing_usb_devices_by_tag(app_context: AppContext, tag: str, permanent: bool = False) -> None:
+    """Find USB devices by tag and detach from VM."""
+    await detach_connected_usb(app_context, tag=tag, permanent=permanent)
+
+
+async def attach_connected_usb(
+    app_context: AppContext, vms_scope: list[str] | None = None, tag: str | None = None
+) -> None:
     """Finds all USB devices that match the rules from the config and attaches them to VMs."""
     if vms_scope is None:
         logger.info("Attaching all USB devices")
+    elif tag is not None:
+        logger.info("Attaching all USB devices by tag %s", tag)
     else:
         logger.info("Attaching USB devices for %s", vms_scope)
 
@@ -441,18 +455,31 @@ async def attach_connected_usb(app_context: AppContext, vms_scope: list[str] | N
                 logger.debug("USB device %s is a USB hub, skipping", usb_info.friendly_name())
                 continue
 
-            res = find_vm_for_device(app_context, usb_info)
+            # When attaching by tag, we want to attach even devices that were permanently disconnected
+            check_disconnected = tag is None
+            res = find_vm_for_device(app_context, usb_info, check_disconnected)
             if res:
+                if tag and res.tag != tag:
+                    continue
+
                 try:
                     await attach_device(app_context, res, usb_info, False, vms_scope)
                 except RuntimeError:
                     logger.exception("Failed to attach USB device %s", usb_info.friendly_name())
 
 
-async def detach_connected_usb(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
+async def detach_connected_usb(
+    app_context: AppContext,
+    vms_scope: list[str] | None = None,
+    suspend: bool = False,
+    tag: str | None = None,
+    permanent: bool = False,
+) -> None:
     """Detach all connected USB devices from VMs."""
     if vms_scope is None:
         logger.info("Detaching all USB devices")
+    elif tag is not None:
+        logger.info("Detaching all USB devices by tag %s", tag)
     else:
         logger.info("Detaching USB devices from %s", vms_scope)
 
@@ -465,7 +492,7 @@ async def detach_connected_usb(app_context: AppContext, vms_scope: list[str] | N
             usb_info = get_usb_info(device)
             res = app_context.config.vm_for_device(usb_info)
             if res:
-                if res.skip_on_suspend:
+                if suspend and res.skip_on_suspend:
                     logger.info(
                         "Skipping USB device %s during suspend",
                         usb_info.friendly_name(),
@@ -482,8 +509,12 @@ async def detach_connected_usb(app_context: AppContext, vms_scope: list[str] | N
                             vms_scope,
                         )
                         continue
+
+                if tag and res.tag != tag:
+                    continue
+
                 try:
-                    await _remove_existing_device(app_context, usb_info)
+                    await _remove_existing_device(app_context, usb_info, permanent)
                 except RuntimeError:
                     logger.exception("Failed to remove %s", usb_info.friendly_name())
             else:
@@ -500,13 +531,17 @@ async def attach_existing_pci_device(app_context: AppContext, pci_address: str, 
 
 async def attach_existing_pci_device_by_vid_did(
     app_context: AppContext, vid: str, did: str, selected_vm: str | None
-) -> bool:
+) -> None:
     """Find PCI device by vendor ID and device ID and attach to selected VM."""
     pci_info = pci_info_by_vid_did(app_context, int(vid, 16), int(did, 16))
     if not pci_info:
         raise RuntimeError(f"PCI device {vid}:{did} not found in the system")
     await _attach_existing_device(app_context, pci_info, selected_vm)
-    return True
+
+
+async def attach_existing_pci_devices_by_tag(app_context: AppContext, tag: str) -> None:
+    """Find PCI devices by tag and attach to VM."""
+    await attach_connected_pci(app_context, tag=tag)
 
 
 async def remove_existing_pci_device(app_context: AppContext, pci_address: str, permanent: bool = False) -> None:
@@ -526,6 +561,11 @@ async def remove_existing_pci_device_by_vid_did(
         raise RuntimeError(f"PCI device {vid}:{did} not found in the system")
     await _remove_existing_device(app_context, pci_info, permanent)
     return True
+
+
+async def remove_existing_pci_devices_by_tag(app_context: AppContext, tag: str, permanent: bool = False) -> None:
+    """Find PCI devices by tag and detach from VM."""
+    await detach_connected_pci(app_context, tag=tag, permanent=permanent)
 
 
 def _get_pci_devices(
@@ -617,16 +657,25 @@ def _get_pci_devices(
     return devices
 
 
-async def attach_connected_pci(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
+async def attach_connected_pci(
+    app_context: AppContext, vms_scope: list[str] | None = None, tag: str | None = None
+) -> None:
     """Finds all PCI devices that match the rules from the config and attaches them to VMs."""
     if vms_scope is None:
         logger.info("Attaching all PCI devices")
+    elif tag is not None:
+        logger.info("Attaching all PCI devices by tag %s", tag)
     else:
         logger.info("Attaching PCI devices for %s", vms_scope)
 
+    # When attaching by tag, we want to attach even devices that were permanently disconnected
+    disconnected: bool | None = False
+    if tag:
+        disconnected = None
+
     # Get a list of all PCI devices for passthrough but do not include devices from IOMMU group
     # They are checked and attached atomically in the attach_device function with VM pause/resume
-    devices = _get_pci_devices(app_context, False, False)
+    devices = _get_pci_devices(app_context, disconnected, False)
 
     # Attach to VMs
     for device in devices:
@@ -639,16 +688,27 @@ async def attach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
         if vm.get("type") != "qemu":
             continue
 
+        if tag and tag != passthrough_info.tag:
+            continue
+
         try:
             await attach_device(app_context, passthrough_info, device["pci_info"], False, vms_scope)
         except RuntimeError:
             logger.exception("Failed to attach PCI device %s", device["pci_info"].friendly_name())
 
 
-async def detach_connected_pci(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
+async def detach_connected_pci(
+    app_context: AppContext,
+    vms_scope: list[str] | None = None,
+    suspend: bool = False,
+    tag: str | None = None,
+    permanent: bool = False,
+) -> None:
     """Detach all connected PCI devices from VMs."""
     if vms_scope is None:
         logger.info("Detaching all PCI devices")
+    elif tag is not None:
+        logger.info("Detaching all PCI devices by tag %s", tag)
     else:
         logger.info("Detaching PCI devices from %s", vms_scope)
 
@@ -658,8 +718,8 @@ async def detach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
             logger.warning("Device %s not found in the system", pci_address)
         else:
             # Find a rule for the device in the config file
-            res = app_context.config.vm_for_device(pci_info)
-            if res:
+            passthrough_info = app_context.config.vm_for_device(pci_info)
+            if passthrough_info:
                 if vms_scope:
                     current_vm_name = app_context.dev_state.get_vm_for_device(pci_info)
                     if current_vm_name not in vms_scope:
@@ -671,15 +731,18 @@ async def detach_connected_pci(app_context: AppContext, vms_scope: list[str] | N
                         )
                         continue
 
-                if res.skip_on_suspend:
+                if suspend and passthrough_info.skip_on_suspend:
                     logger.info(
                         "Skipping PCI device %s during suspend",
                         pci_info.friendly_name(),
                     )
                     continue
 
+                if tag and tag != passthrough_info.tag:
+                    continue
+
                 try:
-                    await _remove_existing_device(app_context, pci_info)
+                    await _remove_existing_device(app_context, pci_info, permanent)
                 except RuntimeError:
                     logger.exception("Failed to remove %s", pci_info.friendly_name())
             else:
@@ -722,7 +785,7 @@ async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] 
                 logger.exception("Failed to remove %s", pci_info.friendly_name())
 
 
-def get_usb_device_list(app_context: AppContext, disconnected: bool) -> list[dict[str, Any]]:
+def get_usb_device_list(app_context: AppContext, disconnected: bool, tag: str | None) -> list[dict[str, Any]]:
     """Returns a list of all USB devices that match the rules from the config."""
     dev_list: list[dict[str, Any]] = []
     for device in app_context.udev_context.list_devices(subsystem="usb"):
@@ -748,6 +811,9 @@ def get_usb_device_list(app_context: AppContext, disconnected: bool) -> list[dic
             elif disconnected:
                 continue
 
+            if tag and res.tag != tag:
+                continue
+
             dev = usb_info.to_dict()
             dev["allowed_vms"] = allowed_vms
             dev["vm"] = current_vm_name
@@ -756,7 +822,7 @@ def get_usb_device_list(app_context: AppContext, disconnected: bool) -> list[dic
     return dev_list
 
 
-def get_pci_device_list(app_context: AppContext, disconnected: bool) -> list[dict[str, Any]]:
+def get_pci_device_list(app_context: AppContext, disconnected: bool, tag: str | None) -> list[dict[str, Any]]:
     """Returns a list of all PCI devices that match the rules from the config."""
     # Find PCI devices eligible for passthrough
     devices = _get_pci_devices(app_context, disconnected, True)
@@ -777,6 +843,10 @@ def get_pci_device_list(app_context: AppContext, disconnected: bool) -> list[dic
         allowed_vms = [passthrough_info.target_vm] if passthrough_info.target_vm else passthrough_info.allowed_vms
         dev["allowed_vms"] = allowed_vms
         dev["vm"] = device["current_vm"]
+
+        if tag and passthrough_info.tag != tag:
+            continue
+
         dev_list.append(dev)
 
     return dev_list

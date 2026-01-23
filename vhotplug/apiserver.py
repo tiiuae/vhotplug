@@ -15,9 +15,11 @@ from vhotplug.device import (
     attach_connected_usb,
     attach_existing_pci_device,
     attach_existing_pci_device_by_vid_did,
+    attach_existing_pci_devices_by_tag,
     attach_existing_usb_device,
     attach_existing_usb_device_by_bus_port,
     attach_existing_usb_device_by_vid_pid,
+    attach_existing_usb_devices_by_tag,
     detach_connected_pci,
     detach_connected_usb,
     get_pci_device_list,
@@ -25,9 +27,11 @@ from vhotplug.device import (
     get_vmm_args,
     remove_existing_pci_device,
     remove_existing_pci_device_by_vid_did,
+    remove_existing_pci_devices_by_tag,
     remove_existing_usb_device,
     remove_existing_usb_device_by_bus_port,
     remove_existing_usb_device_by_vid_pid,
+    remove_existing_usb_devices_by_tag,
 )
 from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
@@ -293,7 +297,8 @@ class APIServer:
 
     def _on_usb_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
         disconnected = msg.get("disconnected", False)
-        return {"result": "ok", "usb_devices": get_usb_device_list(self.app_context, disconnected)}
+        tag = msg.get("tag")
+        return {"result": "ok", "usb_devices": get_usb_device_list(self.app_context, disconnected, tag)}
 
     def _on_usb_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         device_node = msg.get("device_node")
@@ -302,6 +307,7 @@ class APIServer:
         vid = msg.get("vid")
         pid = msg.get("pid")
         selected_vm = msg.get("vm")
+        tag = msg.get("tag")
         if device_node:
             logger.info("Request to attach %s to %s", device_node, selected_vm)
             asyncio.run_coroutine_threadsafe(
@@ -312,6 +318,12 @@ class APIServer:
             logger.info("Request to attach by bus %s and port %s to %s", bus, port, selected_vm)
             asyncio.run_coroutine_threadsafe(
                 attach_existing_usb_device_by_bus_port(self.app_context, bus, port, selected_vm),
+                self.loop,
+            ).result()
+        elif tag:
+            logger.info("Request to attach by tag %s", tag)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_usb_devices_by_tag(self.app_context, tag),
                 self.loop,
             ).result()
         else:
@@ -330,6 +342,7 @@ class APIServer:
         port = msg.get("port")
         vid = msg.get("vid")
         pid = msg.get("pid")
+        tag = msg.get("tag")
         if device_node:
             logger.info("Request to detach %s", device_node)
             asyncio.run_coroutine_threadsafe(
@@ -340,6 +353,12 @@ class APIServer:
             logger.info("Request to detach by bus %s and port %s", bus, port)
             asyncio.run_coroutine_threadsafe(
                 remove_existing_usb_device_by_bus_port(self.app_context, bus, port, True),
+                self.loop,
+            ).result()
+        elif tag:
+            logger.info("Request to detach by tag %s", tag)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_usb_devices_by_tag(self.app_context, tag, True),
                 self.loop,
             ).result()
         else:
@@ -355,7 +374,7 @@ class APIServer:
     def _on_usb_suspend(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            detach_connected_usb(self.app_context, [vm] if vm else None), self.loop
+            detach_connected_usb(self.app_context, [vm] if vm else None, suspend=True), self.loop
         ).result()
         return {"result": "ok"}
 
@@ -368,17 +387,25 @@ class APIServer:
 
     def _on_pci_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
         disconnected = msg.get("disconnected", False)
-        return {"result": "ok", "pci_devices": get_pci_device_list(self.app_context, disconnected)}
+        tag = msg.get("tag")
+        return {"result": "ok", "pci_devices": get_pci_device_list(self.app_context, disconnected, tag)}
 
     def _on_pci_attach(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         address = msg.get("address")
         vid = msg.get("vid")
         did = msg.get("did")
         selected_vm = msg.get("vm")
+        tag = msg.get("tag")
         if address:
             logger.info("Request to attach PCI device %s to %s", address, selected_vm)
             asyncio.run_coroutine_threadsafe(
                 attach_existing_pci_device(self.app_context, address, selected_vm),
+                self.loop,
+            ).result()
+        elif tag:
+            logger.info("Request to attach PCI devices by tag %s", tag)
+            asyncio.run_coroutine_threadsafe(
+                attach_existing_pci_devices_by_tag(self.app_context, tag),
                 self.loop,
             ).result()
         else:
@@ -400,10 +427,17 @@ class APIServer:
         address = msg.get("address")
         vid = msg.get("vid")
         did = msg.get("did")
+        tag = msg.get("tag")
         if address:
             logger.info("Request to detach PCI device %s", address)
             asyncio.run_coroutine_threadsafe(
                 remove_existing_pci_device(self.app_context, address, True),
+                self.loop,
+            ).result()
+        elif tag:
+            logger.info("Request to detach PCI devices by tag %s", tag)
+            asyncio.run_coroutine_threadsafe(
+                remove_existing_pci_devices_by_tag(self.app_context, tag, True),
                 self.loop,
             ).result()
         else:
@@ -419,7 +453,7 @@ class APIServer:
     def _on_pci_suspend(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
         asyncio.run_coroutine_threadsafe(
-            detach_connected_pci(self.app_context, [vm] if vm else None), self.loop
+            detach_connected_pci(self.app_context, [vm] if vm else None, suspend=True), self.loop
         ).result()
         return {"result": "ok"}
 

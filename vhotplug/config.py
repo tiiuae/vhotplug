@@ -19,6 +19,7 @@ class PassthroughInfo:
     pci_iommu_add_all: bool = False
     pci_iommu_skip_if_shared: bool = False
     order: int = 0
+    tag: str | None = None
 
 
 @dataclass
@@ -307,7 +308,8 @@ class Config:
                         continue
 
                     skip_on_suspend = rule.get("skipOnSuspend", False)
-                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend)
+                    tag = rule.get("tag")
+                    return PassthroughInfo(target_vm, allowed_vms, skip_on_suspend, tag=tag)
 
         except (AttributeError, TypeError):
             logger.exception("Failed to find VM for USB device in the configuration file")
@@ -346,8 +348,9 @@ class Config:
                     skip_on_suspend = rule.get("skipOnSuspend", False)
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
+                    tag = rule.get("tag")
                     return PassthroughInfo(
-                        target_vm, [], skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order
+                        target_vm, [], skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order, tag
                     )
 
         except (AttributeError, TypeError):
@@ -382,7 +385,8 @@ class Config:
                         continue
 
                     logger.debug("Found VM %s for %s", target_vm, dev_name)
-                    return PassthroughInfo(target_vm, [])
+                    tag = rule.get("tag")
+                    return PassthroughInfo(target_vm, [], tag=tag)
 
         except (AttributeError, TypeError):
             logger.exception("Failed to find VM for evdev device in the configuration file")
