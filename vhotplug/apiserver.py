@@ -296,7 +296,7 @@ class APIServer:
         return {"result": "ok"}
 
     def _on_usb_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
-        disconnected = msg.get("disconnected", False)
+        disconnected = msg.get("disconnected")
         tag = msg.get("tag")
         return {"result": "ok", "usb_devices": get_usb_device_list(self.app_context, disconnected, tag)}
 
@@ -386,7 +386,7 @@ class APIServer:
         return {"result": "ok"}
 
     def _on_pci_list(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, Any]:
-        disconnected = msg.get("disconnected", False)
+        disconnected = msg.get("disconnected")
         tag = msg.get("tag")
         return {"result": "ok", "pci_devices": get_pci_device_list(self.app_context, disconnected, tag)}
 

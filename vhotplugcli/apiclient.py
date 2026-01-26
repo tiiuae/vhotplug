@@ -100,7 +100,7 @@ class APIClient:
         if response.get("result") != "ok":
             logger.error("Failed to enable notifications: %s", response)
 
-    def usb_list(self, disconnected: bool, tag: str | None) -> dict[str, Any]:
+    def usb_list(self, disconnected: bool | None, tag: str | None) -> dict[str, Any]:
         return self.send({"action": "usb_list", "disconnected": disconnected, "tag": tag})
 
     def usb_attach(self, device_node: str, vm: str) -> dict[str, Any]:
@@ -133,7 +133,7 @@ class APIClient:
     def usb_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "usb_resume", "vm": vm})
 
-    def pci_list(self, disconnected: bool, tag: str | None) -> dict[str, Any]:
+    def pci_list(self, disconnected: bool | None, tag: str | None) -> dict[str, Any]:
         return self.send({"action": "pci_list", "disconnected": disconnected, "tag": tag})
 
     def pci_attach(self, address: str, vm: str) -> dict[str, Any]:

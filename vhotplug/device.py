@@ -785,7 +785,7 @@ async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] 
                 logger.exception("Failed to remove %s", pci_info.friendly_name())
 
 
-def get_usb_device_list(app_context: AppContext, disconnected: bool, tag: str | None) -> list[dict[str, Any]]:
+def get_usb_device_list(app_context: AppContext, disconnected: bool | None, tag: str | None) -> list[dict[str, Any]]:
     """Returns a list of all USB devices that match the rules from the config."""
     dev_list: list[dict[str, Any]] = []
     for device in app_context.udev_context.list_devices(subsystem="usb"):
@@ -808,7 +808,9 @@ def get_usb_device_list(app_context: AppContext, disconnected: bool, tag: str | 
             current_vm_name = app_context.dev_state.get_vm_for_device(usb_info)
             if app_context.dev_state.is_disconnected(usb_info):
                 current_vm_name = None
-            elif disconnected:
+                if disconnected is not None and disconnected is False:
+                    continue
+            elif disconnected is not None and disconnected is True:
                 continue
 
             if tag and res.tag != tag:
@@ -822,7 +824,7 @@ def get_usb_device_list(app_context: AppContext, disconnected: bool, tag: str | 
     return dev_list
 
 
-def get_pci_device_list(app_context: AppContext, disconnected: bool, tag: str | None) -> list[dict[str, Any]]:
+def get_pci_device_list(app_context: AppContext, disconnected: bool | None, tag: str | None) -> list[dict[str, Any]]:
     """Returns a list of all PCI devices that match the rules from the config."""
     # Find PCI devices eligible for passthrough
     devices = _get_pci_devices(app_context, disconnected, True)
