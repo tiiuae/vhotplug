@@ -920,7 +920,9 @@ async def attach_connected_evdev(app_context: AppContext) -> None:
             logger.exception("Failed to attach evdev device %s", evdev_info.friendly_name())
 
 
-def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None) -> list[str]:
+def get_vmm_args(
+    app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None, qemu_bus_start_index: int = 0
+) -> list[str]:
     """Returns a list of VMM arguments for all devices that match the rules from the config."""
     # Get VM details from the config
     vm = app_context.config.get_vm(vm_name)
@@ -929,7 +931,7 @@ def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | N
 
     # Get all PCI devices that match the rules in the config
     args: list[str] = []
-    dev_number = 0
+    dev_number = qemu_bus_start_index
     for dev in _get_pci_devices(app_context, None, True):
         # Filter by target VM
         passthrough_info = dev["passthrough_info"]
@@ -965,7 +967,7 @@ def get_vmm_args(app_context: AppContext, vm_name: str, qemu_bus_prefix: str | N
         args.extend(dev_args)
 
     # Get all evdev devices that match the rules in the config
-    dev_number = 0
+    dev_number = qemu_bus_start_index
     for dev in _get_evdev_devices(app_context):
         evdev_info = dev["evdev_info"]
         target_vm = dev["target_vm"]

@@ -181,11 +181,11 @@ def pci_resume(client: APIClient, vm: str) -> None:
     logger.info("Successfully resumed")
 
 
-def vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None) -> None:
+def vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None, qemu_bus_start_index: int | None) -> None:
     while True:
         try:
             client.connect()
-            res = client.vmm_args(vm, qemu_bus_prefix)
+            res = client.vmm_args(vm, qemu_bus_prefix, qemu_bus_start_index)
         except RuntimeError as e:
             logger.warning(str(e))
             time.sleep(1)
@@ -334,7 +334,8 @@ def main() -> int:
     vmm_args_parser = vmm_sub.add_parser("args", help="Get VMM arguments")
     vmm_args_parser.add_argument("--vm", help="Virtual machine name")
     vmm_args_parser.add_argument("--qemu-bus-prefix", help="QEMU Bus Prefix")
-    vmm_args_parser.set_defaults(func=lambda a, c: vmm_args(c, a.vm, a.qemu_bus_prefix))
+    vmm_args_parser.add_argument("--qemu-bus-start-index", type=int, help="QEMU Bus Start Index")
+    vmm_args_parser.set_defaults(func=lambda a, c: vmm_args(c, a.vm, a.qemu_bus_prefix, a.qemu_bus_start_index))
 
     args = parser.parse_args()
 
