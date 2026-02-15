@@ -367,6 +367,23 @@ class QEMULink:
                     "id": qemuid,
                 }
             )
+
+            # Verify the device appeared with correct VID/DID in the guest PCI tree
+            verified_id = await self._find_pci_device(pci_info)
+            if verified_id is None:
+                logger.error(
+                    "PCI device %s attached but not found with expected VID:DID %s:%s in guest — possible config space corruption",
+                    pci_info.address,
+                    pci_info.vid,
+                    pci_info.did,
+                )
+                # Remove the corrupted device
+                await self._remove_pci_device_by_qemu_id(qemuid)
+                raise RuntimeError(
+                    f"PCI device {pci_info.address} failed post-attach verification "
+                    f"(expected {pci_info.vid}:{pci_info.did})"
+                )
+
             logger.info("Attached PCI device: %s", pci_info.friendly_name())
 
     async def _remove_pci_device_by_qemu_id(self, qemuid: str) -> None:
