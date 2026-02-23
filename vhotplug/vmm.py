@@ -111,6 +111,21 @@ async def vmm_is_pci_dev_connected(vm: dict[str, str], pci_info: PCIInfo) -> boo
     return False
 
 
+async def vmm_wait_until_removed(vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:
+    """Waits until the device is removed from the VM."""
+    vm_type = vm.get("type")
+    vm_socket = vm.get("socket")
+    if not vm_socket:
+        raise RuntimeError("No socket path defined")
+
+    if vm_type == "qemu":
+        qemu = QEMULink(vm_socket)
+        if isinstance(dev_info, USBInfo):
+            await qemu.wait_until_usb_removed(dev_info)
+        else:
+            await qemu.wait_until_pci_removed(dev_info)
+
+
 def vmm_args_pci(vm: dict[str, str], dev: PCIInfo, n: int, qemu_bus_prefix: str | None) -> list[str]:
     vm_type = vm.get("type")
     sys_name = dev.address

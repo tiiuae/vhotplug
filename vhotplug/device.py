@@ -36,6 +36,7 @@ from vhotplug.vmm import (
     vmm_pause,
     vmm_remove_device,
     vmm_resume,
+    vmm_wait_until_removed,
 )
 
 logger = logging.getLogger("vhotplug")
@@ -284,7 +285,7 @@ async def _remove_iommu_group(app_context: AppContext, devices: list[str], vm: d
                     if not vm_paused:
                         await vmm_pause(vm)
                         vm_paused = True
-                    await _remove_device_from_vm(app_context, pci_info, vm)
+                    await _remove_device_from_vm(app_context, pci_info, vm, False)
     finally:
         if vm_paused:
             await vmm_resume(vm)
@@ -325,10 +326,16 @@ async def remove_device(app_context: AppContext, dev_info: USBInfo | PCIInfo) ->
     await _remove_device_from_vm(app_context, dev_info, vm)
 
 
-async def _remove_device_from_vm(app_context: AppContext, dev_info: USBInfo | PCIInfo, vm: dict[str, str]) -> None:
+async def _remove_device_from_vm(
+    app_context: AppContext, dev_info: USBInfo | PCIInfo, vm: dict[str, str], wait: bool = True
+) -> None:
     """Removes device from VM, saves its state and sends a notification."""
     # Remove from VM
     await vmm_remove_device(app_context, vm, dev_info)
+
+    if wait:
+        # Wait until the device is no longer in the list
+        await vmm_wait_until_removed(vm, dev_info)
 
     logger.info("Removed %s", dev_info.friendly_name())
 

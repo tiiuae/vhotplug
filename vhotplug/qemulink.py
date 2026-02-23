@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import socket
+import time
 from typing import Any
 
 import pyudev
@@ -22,6 +23,7 @@ class QEMULink:
     vm_retry_timeout = 1
     vm_wait_after_boot = 0
     vm_boot_timeout = 1
+    dev_remove_timeout = 5
 
     def __init__(self, socket_path: str) -> None:
         self.socket_path = socket_path
@@ -273,6 +275,19 @@ class QEMULink:
             )
             logger.info("Attached USB device %s with id %s", usb_info.friendly_name(), qemuid)
 
+    async def wait_until_usb_removed(self, usb_info: USBInfo) -> None:
+        deadline = time.monotonic() + self.dev_remove_timeout
+
+        qemuid = self._qemu_id_usb(usb_info)
+        while time.monotonic() < deadline:
+            if not await self._find_usb_device(qemuid):
+                return
+
+            logger.warning("USB device %s is still connected to guest", usb_info.friendly_name())
+            await asyncio.sleep(1)
+
+        logger.warning("USB device %s was not removed in time", usb_info.friendly_name())
+
     async def remove_usb_device(self, usb_info: USBInfo) -> None:
         async with self._lock:
             qemuid = self._qemu_id_usb(usb_info)
@@ -442,6 +457,18 @@ class QEMULink:
                     all_qemu_ids.extend(walk_devices(devices))
 
         return all_qemu_ids
+
+    async def wait_until_pci_removed(self, pci_info: PCIInfo) -> None:
+        deadline = time.monotonic() + self.dev_remove_timeout
+
+        while time.monotonic() < deadline:
+            if await self._find_pci_device(pci_info) is None:
+                return
+
+            logger.warning("PCI device %s is still connected to guest", pci_info.friendly_name())
+            await asyncio.sleep(1)
+
+        logger.warning("PCI device %s was not removed in time", pci_info.friendly_name())
 
     async def remove_pci_device_by_vid_did(self, pci_info: PCIInfo) -> None:
         async with self._lock:
