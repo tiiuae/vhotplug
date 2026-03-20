@@ -91,6 +91,10 @@ class QEMULink:
             if str(last_error).endswith("failed to get exclusive access: Device or resource busy"):
                 break
 
+            # Don't retry when the device is already attached
+            if str(last_error).endswith("device is already attached"):
+                break
+
             if attempt < self.vm_retry_count:
                 logger.info("Retrying in %s seconds...", self.vm_retry_timeout)
                 await asyncio.sleep(self.vm_retry_timeout)
