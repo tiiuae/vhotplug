@@ -16,6 +16,7 @@ from vhotplug.pci import (
     get_pci_info,
     pci_info_by_address,
     pci_info_by_vid_did,
+    pci_is_nvidia_gpu,
     setup_vfio,
 )
 from vhotplug.usb import (
@@ -31,6 +32,7 @@ from vhotplug.vmm import (
     vmm_add_device,
     vmm_args_acpi_table,
     vmm_args_evdev,
+    vmm_args_ovmf,
     vmm_args_pci,
     vmm_is_pci_dev_connected,
     vmm_pause,
@@ -938,6 +940,7 @@ def get_vmm_args(
 
     # Get all PCI devices that match the rules in the config
     args: list[str] = []
+    needs_ovmf = False
     dev_number = qemu_bus_start_index
     for dev in _get_pci_devices(app_context, None, True):
         # Filter by target VM
@@ -946,6 +949,8 @@ def get_vmm_args(
             continue
 
         pci_info = dev["pci_info"]
+        if passthrough_info.auto_ovmf and pci_is_nvidia_gpu(pci_info):
+            needs_ovmf = True
 
         # Setup VFIO for all PCI devices in the IOMMU group
         setup_vfio(pci_info)
@@ -954,6 +959,9 @@ def get_vmm_args(
         dev_args = vmm_args_pci(vm, pci_info, dev_number, qemu_bus_prefix)
         dev_number = dev_number + 1
         args.extend(dev_args)
+
+    if needs_ovmf:
+        args = vmm_args_ovmf(vm, app_context.config.get_ovmf_code(), app_context.config.get_ovmf_vars()) + args
 
     # Get ACPI tables for the VM
     for table in app_context.config.get_acpi_tables(vm_name):

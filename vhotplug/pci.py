@@ -107,6 +107,10 @@ def pci_info_by_vid_did(app_context: AppContext, vid: int, did: int) -> PCIInfo 
     return None
 
 
+def pci_is_nvidia_gpu(pci_info: PCIInfo) -> bool:
+    return pci_info.vendor_id == 0x10DE and pci_info.pci_class == 0x03
+
+
 def _get_pci_driver(pci_address: str) -> str | None:
     """Returns PCI device driver name."""
     path = f"/sys/bus/pci/devices/{pci_address}/driver"

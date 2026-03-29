@@ -1,4 +1,8 @@
+import json
+from pathlib import Path
+
 from vhotplug.config import Config
+from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
 
 
@@ -129,3 +133,31 @@ def test_wrong_bus_port() -> None:
     config = Config("config.json")
     res = config.vm_for_device(USBInfo(busnum=11, ports=[33, 22, 44]))
     assert res is None
+
+
+def test_pci_rule_auto_ovmf(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "pciPassthrough": [
+                    {
+                        "description": "NVIDIA GPU for VM1",
+                        "targetVm": "vm1",
+                        "autoOvmf": True,
+                        "allow": [{"vendorId": "10de", "deviceId": "2206"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config(str(config_path))
+    res = config.vm_for_device(PCIInfo(address="0000:01:00.0", vendor_id=0x10DE, device_id=0x2206))
+    assert res is not None and res.auto_ovmf
+
+
+def test_get_ovmf_paths() -> None:
+    config = Config("config.json")
+    assert config.get_ovmf_code() == "/usr/share/OVMF/OVMF_CODE.fd"
+    assert config.get_ovmf_vars() == "/usr/share/OVMF/OVMF_VARS.fd"

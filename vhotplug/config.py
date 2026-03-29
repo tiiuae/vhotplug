@@ -18,6 +18,7 @@ class PassthroughInfo:
     skip_on_suspend: bool = False
     pci_iommu_add_all: bool = False
     pci_iommu_skip_if_shared: bool = False
+    auto_ovmf: bool = False
     order: int = 0
     tag: str | None = None
 
@@ -348,9 +349,17 @@ class Config:
                     skip_on_suspend = rule.get("skipOnSuspend", False)
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
+                    auto_ovmf = rule.get("autoOvmf", False)
                     tag = rule.get("tag")
                     return PassthroughInfo(
-                        target_vm, [], skip_on_suspend, pci_iommu_add_all, pci_iommu_skip_if_shared, order, tag
+                        target_vm,
+                        [],
+                        skip_on_suspend,
+                        pci_iommu_add_all,
+                        pci_iommu_skip_if_shared,
+                        auto_ovmf,
+                        order,
+                        tag,
                     )
 
         except (AttributeError, TypeError):
@@ -431,6 +440,14 @@ class Config:
 
     def get_modinfo(self) -> str:
         return str(self.config.get("general", {}).get("modinfo", "modinfo"))
+
+    def get_ovmf_code(self) -> str | None:
+        result = self.config.get("general", {}).get("ovmfCode")
+        return result if isinstance(result, str) and result else None
+
+    def get_ovmf_vars(self) -> str | None:
+        result = self.config.get("general", {}).get("ovmfVars")
+        return result if isinstance(result, str) and result else None
 
     def get_acpi_tables(self, vm_name: str) -> list[AcpiInfo]:
         acpi_tables: list[AcpiInfo] = []

@@ -148,6 +148,8 @@
     }
   ],
   "general": {
+    "ovmfCode": "/usr/share/OVMF/OVMF_CODE.fd",
+    "ovmfVars": "/usr/share/OVMF/OVMF_VARS.fd",
     "api": {
       "enable": false,
       "host": "127.0.0.1",

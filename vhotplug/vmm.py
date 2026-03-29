@@ -140,6 +140,24 @@ def vmm_args_pci(vm: dict[str, str], dev: PCIInfo, n: int, qemu_bus_prefix: str 
     raise RuntimeError(f"Unsupported vm type: {vm_type}")
 
 
+def vmm_args_ovmf(vm: dict[str, Any], ovmf_code: str | None, ovmf_vars: str | None) -> list[str]:
+    vm_type = vm.get("type")
+    if vm_type != "qemu":
+        raise RuntimeError(f"Unsupported vm type: {vm_type}")
+
+    if not ovmf_code:
+        raise RuntimeError("General ovmfCode is not defined")
+    if not ovmf_vars:
+        raise RuntimeError("General ovmfVars is not defined")
+
+    return [
+        "-drive",
+        f"if=pflash,format=raw,unit=0,readonly=on,file={ovmf_code}",
+        "-drive",
+        f"if=pflash,format=raw,unit=1,readonly=on,file={ovmf_vars}",
+    ]
+
+
 def vmm_args_evdev(vm: dict[str, str], dev: EvdevInfo, n: int) -> list[str]:
     vm_type = vm.get("type")
     device_node = dev.device_node
