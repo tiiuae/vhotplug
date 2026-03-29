@@ -19,6 +19,7 @@ class PassthroughInfo:
     pci_iommu_add_all: bool = False
     pci_iommu_skip_if_shared: bool = False
     auto_ovmf: bool = False
+    qemu_use_root_bus: bool = False
     order: int = 0
     tag: str | None = None
 
@@ -350,6 +351,7 @@ class Config:
                     pci_iommu_add_all = rule.get("pciIommuAddAll", False)
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
                     auto_ovmf = rule.get("autoOvmf", False)
+                    qemu_use_root_bus = rule.get("qemuUseRootBus", False)
                     tag = rule.get("tag")
                     return PassthroughInfo(
                         target_vm,
@@ -358,6 +360,7 @@ class Config:
                         pci_iommu_add_all,
                         pci_iommu_skip_if_shared,
                         auto_ovmf,
+                        qemu_use_root_bus,
                         order,
                         tag,
                     )

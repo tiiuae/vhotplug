@@ -956,7 +956,7 @@ def get_vmm_args(
         setup_vfio(pci_info)
 
         # Generate arguments fo the VMM
-        dev_args = vmm_args_pci(vm, pci_info, dev_number, qemu_bus_prefix)
+        dev_args = vmm_args_pci(vm, pci_info, dev_number, qemu_bus_prefix, passthrough_info.qemu_use_root_bus)
         dev_number = dev_number + 1
         args.extend(dev_args)
 

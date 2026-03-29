@@ -161,3 +161,25 @@ def test_get_ovmf_paths() -> None:
     config = Config("config.json")
     assert config.get_ovmf_code() == "/usr/share/OVMF/OVMF_CODE.fd"
     assert config.get_ovmf_vars() == "/usr/share/OVMF/OVMF_VARS.fd"
+
+
+def test_pci_rule_qemu_use_root_bus(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "pciPassthrough": [
+                    {
+                        "description": "GPU for VM1",
+                        "targetVm": "vm1",
+                        "qemuUseRootBus": True,
+                        "allow": [{"vendorId": "10de", "deviceId": "2206"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config(str(config_path))
+    res = config.vm_for_device(PCIInfo(address="0000:01:00.0", vendor_id=0x10DE, device_id=0x2206))
+    assert res is not None and res.qemu_use_root_bus
