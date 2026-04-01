@@ -994,3 +994,49 @@ def get_vmm_args(
 
     logger.info("VMM args for %s: %s", vm_name, args)
     return args
+
+
+def log_detected_devices(app_context: AppContext) -> None:
+    """Logs all devices detected in the system."""
+    logger.info("USB devices:")
+    for device in app_context.udev_context.list_devices(subsystem="usb"):
+        if not is_usb_device(device):
+            continue
+
+        usb_info = get_usb_info(device)
+        if usb_info.is_usb_hub():
+            continue
+
+        logger.info(
+            "- %s, node: %s, class: %s, subclass: %s, protocol: %s, interfaces: %s",
+            usb_info.friendly_name(),
+            usb_info.device_node,
+            usb_info.device_class,
+            usb_info.device_subclass,
+            usb_info.device_protocol,
+            usb_info.interfaces,
+        )
+
+    logger.info("PCI devices:")
+    for device in app_context.udev_context.list_devices(subsystem="pci"):
+        pci_info = get_pci_info(device)
+        logger.info(
+            "- %s, class: %s, subclass: %s, prog if: %s, driver: %s",
+            pci_info.friendly_name(),
+            pci_info.pci_class,
+            pci_info.pci_subclass,
+            pci_info.pci_prog_if,
+            pci_info.driver,
+        )
+
+    logger.info("Evdev devices:")
+    for device in app_context.udev_context.list_devices(subsystem="input"):
+        bus = device.properties.get("ID_BUS")
+        if is_input_device(device) and bus != "usb":
+            evdev_info = get_evdev_info(device)
+            logger.info(
+                "- %s, bus: %s, path tag: %s",
+                evdev_info.friendly_name(),
+                evdev_info.bus,
+                evdev_info.path_tag,
+            )

@@ -17,6 +17,7 @@ from vhotplug.device import (
     find_vm_for_device,
     get_usb_info,
     is_usb_device,
+    log_detected_devices,
     log_device,
     remove_device,
 )
@@ -167,6 +168,9 @@ async def async_main() -> None:
         api_server = APIServer(app_context, asyncio.get_event_loop())
         app_context.api_server = api_server
         api_server.start()
+
+    # Log all detected devices on startup
+    log_detected_devices(app_context)
 
     if args.attach_connected:
         # Check all evdev input devices devices and attach to VMs
