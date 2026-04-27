@@ -642,8 +642,12 @@ def _get_pci_devices(
             }
         )
 
+    # Sort by PCI address
+    devices.sort(key=lambda x: x["pci_info"].address)
+
     # Sort by order
     devices.sort(key=lambda x: x["passthrough_info"].order)
+
     return devices
 
 
