@@ -35,9 +35,7 @@ from vhotplug.vmm import (
     vmm_args_ovmf,
     vmm_args_pci,
     vmm_is_pci_dev_connected,
-    vmm_pause,
     vmm_remove_device,
-    vmm_resume,
     vmm_wait_until_removed,
 )
 
@@ -112,31 +110,22 @@ async def _attach_iommu_group(app_context: AppContext, devices: list[str], vm: d
 
     # Attach all devices to the VM
     vm_name = vm.get("name", "")
-    vm_paused = False
-    try:
-        for dev_addr in devices:
-            pci_info = pci_info_by_address(app_context, dev_addr)
-            if pci_info:
-                current_vm = app_context.dev_state.get_vm_for_device(pci_info)
-                if current_vm:
-                    if current_vm != vm_name:
-                        logger.warning(
-                            "Device %s already attached to a different vm: %s (target vm: %s)",
-                            pci_info.friendly_name(),
-                            current_vm,
-                            vm_name,
-                        )
-                    continue
-
-                if not vm_paused:
-                    await vmm_pause(vm)
-                    vm_paused = True
-                await _attach_device_to_vm(app_context, pci_info, vm)
-            else:
-                logger.error("Device %s not found", dev_addr)
-    finally:
-        if vm_paused:
-            await vmm_resume(vm)
+    for dev_addr in devices:
+        pci_info = pci_info_by_address(app_context, dev_addr)
+        if pci_info:
+            current_vm = app_context.dev_state.get_vm_for_device(pci_info)
+            if current_vm:
+                if current_vm != vm_name:
+                    logger.warning(
+                        "Device %s already attached to a different vm: %s (target vm: %s)",
+                        pci_info.friendly_name(),
+                        current_vm,
+                        vm_name,
+                    )
+                continue
+            await _attach_device_to_vm(app_context, pci_info, vm)
+        else:
+            logger.error("Device %s not found", dev_addr)
 
 
 async def attach_device(
@@ -271,26 +260,18 @@ async def _remove_iommu_group(app_context: AppContext, devices: list[str], vm: d
 
     # Remove all devices from the VM
     vm_name = vm.get("name")
-    vm_paused = False
-    try:
-        for dev_addr in devices:
-            pci_info = pci_info_by_address(app_context, dev_addr)
-            if pci_info:
-                current_vm = app_context.dev_state.get_vm_for_device(pci_info)
-                if current_vm and current_vm != vm_name:
-                    logger.warning(
-                        "Device %s in the same IOMMU group attached to a different vm: %s",
-                        pci_info.friendly_name(),
-                        pci_info,
-                    )
-                else:
-                    if not vm_paused:
-                        await vmm_pause(vm)
-                        vm_paused = True
-                    await _remove_device_from_vm(app_context, pci_info, vm, False)
-    finally:
-        if vm_paused:
-            await vmm_resume(vm)
+    for dev_addr in devices:
+        pci_info = pci_info_by_address(app_context, dev_addr)
+        if pci_info:
+            current_vm = app_context.dev_state.get_vm_for_device(pci_info)
+            if current_vm and current_vm != vm_name:
+                logger.warning(
+                    "Device %s in the same IOMMU group attached to a different vm: %s",
+                    pci_info.friendly_name(),
+                    pci_info,
+                )
+            else:
+                await _remove_device_from_vm(app_context, pci_info, vm)
 
 
 async def remove_device(app_context: AppContext, dev_info: USBInfo | PCIInfo) -> None:
