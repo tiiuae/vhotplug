@@ -281,7 +281,7 @@ class APIServer:
             logger.warning("Unknown API request %s from %s", action, client_addr)
             return {"result": "failed", "error": f"Unknown message: {action}"}
         try:
-            logger.info('API request "%s" from %s', action, client_addr)
+            logger.debug('API request "%s" from %s', action, client_addr)
             return handler(client_sock, client_addr, msg)
         except (RuntimeError, TypeError, ValueError) as e:
             logger.exception("Failed to process API request")
@@ -373,6 +373,7 @@ class APIServer:
 
     def _on_usb_suspend(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
+        logger.info("USB suspend: %s", vm)
         asyncio.run_coroutine_threadsafe(
             detach_connected_usb(self.app_context, [vm] if vm else None, suspend=True), self.loop
         ).result()
@@ -380,6 +381,7 @@ class APIServer:
 
     def _on_usb_resume(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
+        logger.info("USB resume: %s", vm)
         asyncio.run_coroutine_threadsafe(
             attach_connected_usb(self.app_context, [vm] if vm else None), self.loop
         ).result()
@@ -452,6 +454,7 @@ class APIServer:
 
     def _on_pci_suspend(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
+        logger.info("PCI suspend: %s", vm)
         asyncio.run_coroutine_threadsafe(
             detach_connected_pci(self.app_context, [vm] if vm else None, suspend=True), self.loop
         ).result()
@@ -459,6 +462,7 @@ class APIServer:
 
     def _on_pci_resume(self, _client_sock: socket.socket, _client_addr: Any, msg: dict[str, Any]) -> dict[str, str]:
         vm = msg.get("vm")
+        logger.info("PCI resume: %s", vm)
         asyncio.run_coroutine_threadsafe(
             attach_connected_pci(self.app_context, [vm] if vm else None), self.loop
         ).result()

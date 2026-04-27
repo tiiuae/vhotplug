@@ -297,7 +297,7 @@ class QEMULink:
             qemuid = self._qemu_id_usb(usb_info)
             await self._execute("device_del", {"id": qemuid})
 
-    async def _add_pci_device(self, params: dict[str, Any]) -> None:
+    async def _add_pci_device(self, params: dict[str, Any]) -> str:
         """Adds PCI device to the first available PCI port."""
         ports = await self._find_empty_pci_bridges()
         if len(ports):
@@ -310,7 +310,7 @@ class QEMULink:
                 logger.debug("Trying port %s", port)
                 params["bus"] = port
                 await self._execute("device_add", params)
-                return
+                return port
             except RuntimeError as e:
                 if re.search(r"PCI: slot \d+ function \d+ already occupied by", str(e)):
                     logger.warning("PCI port %s is not available", port)
@@ -332,14 +332,14 @@ class QEMULink:
                 qemuid,
             )
             try:
-                await self._add_pci_device(
+                port = await self._add_pci_device(
                     {
                         "driver": "virtio-input-host-pci",
                         "evdev": evdev_info.device_node,
                         "id": qemuid,
                     }
                 )
-                logger.info("Attached evdev device %s", evdev_info.device_node)
+                logger.info("Attached evdev device %s on port %s", evdev_info.device_node, port)
             except RuntimeError as e:
                 if str(e).endswith("failed to get exclusive access: Device or resource busy"):
                     logger.info("The device is busy, it is likely already connected to the VM")
@@ -379,14 +379,14 @@ class QEMULink:
                 self.socket_path,
             )
 
-            await self._add_pci_device(
+            port = await self._add_pci_device(
                 {
                     "driver": "vfio-pci",
                     "host": pci_info.address,
                     "id": qemuid,
                 }
             )
-            logger.info("Attached PCI device: %s", pci_info.friendly_name())
+            logger.info("Attached PCI device %s on port %s", pci_info.friendly_name(), port)
 
     async def _remove_pci_device_by_qemu_id(self, qemuid: str) -> None:
         await self._execute("device_del", {"id": qemuid}, False)
