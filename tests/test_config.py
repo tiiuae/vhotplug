@@ -183,3 +183,31 @@ def test_pci_rule_qemu_use_root_bus(tmp_path: Path) -> None:
     config = Config(str(config_path))
     res = config.vm_for_device(PCIInfo(address="0000:01:00.0", vendor_id=0x10DE, device_id=0x2206))
     assert res is not None and res.qemu_use_root_bus
+
+
+def test_usb_authorization(tmp_path: Path) -> None:
+    config = Config("config.json")
+    assert not config.usb_authorization_enabled()
+    assert not config.usb_authorization_deauthorize_unmatched()
+
+    config_path = tmp_path / "usb-authorization.json"
+    config_path.write_text(json.dumps({"usbAuthorization": {"enable": True}}), encoding="utf-8")
+    assert Config(str(config_path)).usb_authorization_enabled()
+
+    config_path.write_text(
+        json.dumps(
+            {
+                "usbAuthorization": {
+                    "enable": True,
+                    "deauthorizeUnmatched": True,
+                    "hostAllow": [{"vendorId": "1234", "productId": "5678"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    host_config = Config(str(config_path))
+    assert host_config.usb_authorization_enabled()
+    assert host_config.usb_authorization_deauthorize_unmatched()
+    assert host_config.usb_authorization_host_allowed(USBInfo(vid="1234", pid="5678"))
+    assert not host_config.usb_authorization_host_allowed(USBInfo(vid="1234", pid="abcd"))

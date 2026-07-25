@@ -147,6 +147,17 @@
       "socket": "/tmp/crosvm-socket1"
     }
   ],
+  "usbAuthorization": {
+    "enable": false,
+    "deauthorizeUnmatched": false,
+    "hostAllow": [
+      {
+        "vendorId": "067b",
+        "productId": "23a3",
+        "description": "Prolific USB-to-Serial Bridge"
+      }
+    ]
+  },
   "general": {
     "ovmfCode": "/usr/share/OVMF/OVMF_CODE.fd",
     "ovmfVars": "/usr/share/OVMF/OVMF_VARS.fd",

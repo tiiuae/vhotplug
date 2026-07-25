@@ -1,5 +1,6 @@
 import logging
 import subprocess
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import psutil
@@ -27,6 +28,7 @@ class USBInfo(NamedTuple):
     ports: list[int] | None = None
     sys_name: str | None = None
     bcd_device: int | None = None
+    sys_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -141,6 +143,12 @@ class USBInfo(NamedTuple):
             iface_number = iface_number + 1
         return result
 
+    def exists(self) -> bool:
+        if not self.sys_path:
+            logger.warning("USB device %s does not have sys_path", self.friendly_name())
+            return False
+        return Path(self.sys_path).exists()
+
 
 def _bytes_to_int(data: bytes | None) -> int | None:
     if not data:
@@ -177,6 +185,7 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
     ports = _get_ports(device.sys_name)
     sys_name = device.sys_name
     bcd_device = _bytes_to_int(device.attributes.get("bcdDevice"))
+    sys_path = device.sys_path
 
     return USBInfo(
         device_node,
@@ -194,6 +203,7 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
         ports,
         sys_name,
         bcd_device,
+        sys_path,
     )
 
 
@@ -292,3 +302,64 @@ def get_drivers_from_modaliases(modaliases: list[str], modprobe: str, modinfo: s
             if d not in result:
                 result.append(d)
     return result
+
+
+def set_usb_authorized_default(authorized: bool) -> None:
+    """Set the default authorization state for usbcore and all USB root hubs."""
+    # Set global usbcore authorized_default
+    usbcore = Path("/sys/module/usbcore/parameters/authorized_default")
+    if usbcore.exists():
+        try:
+            usbcore.write_text("1" if authorized else "0")
+        except OSError as e:
+            logger.warning("Failed to set default USB authorization for usbcore: %s", e)
+
+    # Set authorized_default for all USB root hubs
+    for path in Path("/sys/bus/usb/devices").glob("usb*/authorized_default"):
+        try:
+            path.write_text("1" if authorized else "0")
+        except OSError as e:
+            logger.warning("Failed to set default USB authorization for %s: %s", path, e)
+
+
+def get_usb_device_authorization(usb_info: USBInfo) -> int | None:
+    if not usb_info.sys_path:
+        return None
+
+    try:
+        path = Path(usb_info.sys_path) / "authorized"
+        if not path.is_file():
+            return None
+
+        return int(path.read_text().strip())
+    except (OSError, ValueError) as e:
+        logger.warning("Failed to read USB authorization for %s: %s", usb_info.friendly_name(), e)
+        return None
+
+
+def authorize_usb_device(usb_info: USBInfo, authorized: bool = True) -> bool:
+    """Authorize a USB device."""
+    if not usb_info.sys_path:
+        logger.warning("USB device %s does not have sys_path", usb_info.friendly_name())
+        return False
+
+    if not usb_info.exists():
+        logger.warning("USB device %s not found", usb_info.friendly_name())
+        return False
+
+    path = Path(usb_info.sys_path) / "authorized"
+    if not path.is_file():
+        logger.warning("USB device %s does not have authorized field", usb_info.friendly_name())
+        return False
+
+    try:
+        path.write_text("1" if authorized else "0")
+        return True
+    except OSError as e:
+        logger.warning("Failed to set authorized for %s: %s", usb_info.friendly_name(), e)
+        return False
+
+
+def deauthorize_usb_device(usb_info: USBInfo) -> bool:
+    """Deauthorize a USB device."""
+    return authorize_usb_device(usb_info, False)

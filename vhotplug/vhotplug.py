@@ -13,6 +13,7 @@ from vhotplug.device import (
     attach_connected_pci,
     attach_connected_usb,
     attach_device,
+    deauthorize_unmatched_usb,
     detach_disconnected_pci,
     find_vm_for_device,
     get_usb_info,
@@ -24,7 +25,12 @@ from vhotplug.device import (
 from vhotplug.devicestate import DeviceState
 from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
-from vhotplug.usb import get_drivers_from_modaliases
+from vhotplug.usb import (
+    authorize_usb_device,
+    get_drivers_from_modaliases,
+    get_usb_device_authorization,
+    set_usb_authorized_default,
+)
 
 logger = logging.getLogger("vhotplug")
 
@@ -48,11 +54,14 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 usb_info.device_protocol,
                 usb_info.interfaces,
             )
+
             drivers = get_drivers_from_modaliases(
                 usb_info.get_modaliases(), app_context.config.get_modprobe(), app_context.config.get_modinfo()
             )
             for driver in drivers:
                 logger.info("Device driver: %s", driver)
+
+            logger.info("Device authorization: %s", get_usb_device_authorization(usb_info))
 
             # Notify that USB device is connected to host
             if app_context.api_server:
@@ -62,6 +71,9 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 res = find_vm_for_device(app_context, usb_info)
                 if res:
                     await attach_device(app_context, res, usb_info, True)
+                elif app_context.config.usb_authorization_host_allowed(usb_info):
+                    logger.info("USB device %s is allowed on host, authorizing", usb_info.friendly_name())
+                    authorize_usb_device(usb_info)
             except RuntimeError:
                 logger.exception("Failed to attach device %s", device.device_node)
 
@@ -163,6 +175,10 @@ async def async_main() -> None:
 
     app_context = AppContext(config, udev_monitor, udev_context, dev_state)
 
+    if config.usb_authorization_enabled():
+        logger.info("Setting authorized_default to 0 for usbcore and all USB root hubs")
+        set_usb_authorized_default(False)
+
     api_server = None
     if config.api_enabled():
         api_server = APIServer(app_context, asyncio.get_event_loop())
@@ -181,6 +197,10 @@ async def async_main() -> None:
         await attach_connected_pci(app_context)
         # Check all PCI devices and detach those that were previously permanently detached
         await detach_disconnected_pci(app_context)
+
+    # Deauthorize all unmatched USB devices except USB root hubs and the boot device
+    if config.usb_authorization_deauthorize_unmatched():
+        deauthorize_unmatched_usb(app_context)
 
     logger.info("Waiting for new devices")
     await monitor_loop(app_context, file_watcher, args.attach_connected)

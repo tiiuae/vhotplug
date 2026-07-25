@@ -21,7 +21,10 @@ from vhotplug.pci import (
 )
 from vhotplug.usb import (
     USBInfo,
+    authorize_usb_device,
+    deauthorize_usb_device,
     get_drivers_from_modaliases,
+    get_usb_device_authorization,
     get_usb_info,
     is_usb_device,
     usb_device_by_bus_port,
@@ -243,8 +246,23 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
     if isinstance(dev_info, PCIInfo):
         setup_vfio(dev_info)
 
+    # Authorize USB device
+    if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled():
+        if get_usb_device_authorization(dev_info) == 1:
+            logger.warning("USB device %s was already authorized", dev_info.friendly_name())
+        else:
+            logger.info("Authorizing %s", dev_info.friendly_name())
+            if not authorize_usb_device(dev_info):
+                raise RuntimeError(f"Failed to authorize {dev_info.friendly_name()}")
+
     # Attach device to the VM
-    await vmm_add_device(app_context, vm, dev_info)
+    try:
+        await vmm_add_device(app_context, vm, dev_info)
+    except Exception:
+        if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled():
+            logger.info("Deauthorizing %s", dev_info.friendly_name())
+            deauthorize_usb_device(dev_info)
+        raise
 
     # Add selected VM to the state database
     app_context.dev_state.set_vm_for_device(dev_info, vm_name)
@@ -324,6 +342,11 @@ async def _remove_device_from_vm(
 
     # Remove it from the state database
     app_context.dev_state.remove_vm_for_device(dev_info)
+
+    # Deauthorize USB device if it is still present on host
+    if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled() and dev_info.exists():
+        logger.info("Deauthorizing %s", dev_info.friendly_name())
+        deauthorize_usb_device(dev_info)
 
     # Send a notification
     if app_context.api_server:
@@ -1025,3 +1048,30 @@ def log_detected_devices(app_context: AppContext) -> None:
                 evdev_info.bus,
                 evdev_info.path_tag,
             )
+
+
+def deauthorize_unmatched_usb(app_context: AppContext) -> None:
+    """Block connected USB devices that are not currently passed through to a VM."""
+    if not app_context.config.usb_authorization_enabled():
+        return
+
+    logger.info("Checking authorization of all connected USB devices")
+    for device in app_context.udev_context.list_devices(subsystem="usb"):
+        if not is_usb_device(device):
+            continue
+
+        usb_info = get_usb_info(device)
+        if usb_info.is_usb_hub():
+            continue
+        if usb_info.is_boot_device(app_context.udev_context):
+            logger.info("Keeping USB boot device %s authorized on host", usb_info.friendly_name())
+            continue
+        if app_context.dev_state.get_vm_for_device(usb_info):
+            continue
+        if app_context.config.usb_authorization_host_allowed(usb_info):
+            logger.info("Keeping USB device %s authorized for host use", usb_info.friendly_name())
+            authorize_usb_device(usb_info)
+            continue
+
+        logger.info("Deauthorizing %s", usb_info.friendly_name())
+        deauthorize_usb_device(usb_info)

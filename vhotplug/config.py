@@ -487,3 +487,24 @@ class Config:
         except (AttributeError, TypeError):
             logger.exception("Failed to find ACPI tables for %s", vm_name)
         return acpi_tables
+
+    def usb_authorization_enabled(self) -> bool:
+        return bool(self._enabled(self.config.get("usbAuthorization", {}), False))
+
+    def usb_authorization_host_allowed(self, usb_info: USBInfo) -> bool:
+        """Return whether a USB device should be authorized for host use."""
+        if not self.usb_authorization_enabled():
+            return False
+
+        authorization = self.config.get("usbAuthorization", {})
+        if not isinstance(authorization, dict):
+            return False
+
+        for rule in authorization.get("hostAllow", []):
+            if isinstance(rule, dict) and self._match_usb(usb_info, rule):
+                return True
+        return False
+
+    def usb_authorization_deauthorize_unmatched(self) -> bool:
+        """Return whether already connected, unattached USB devices should be deauthorized at startup."""
+        return bool(self.config.get("usbAuthorization", {}).get("deauthorizeUnmatched", False))
