@@ -108,6 +108,9 @@ class USBInfo(NamedTuple):
         return result
 
     def is_usb_hub(self) -> bool:
+        if self.device_class == 9:
+            return True
+
         usb_interfaces = self.get_interfaces()
         for interface in usb_interfaces:
             interface_class = interface["class"]
@@ -304,22 +307,50 @@ def get_drivers_from_modaliases(modaliases: list[str], modprobe: str, modinfo: s
     return result
 
 
-def set_usb_authorized_default(authorized: bool) -> None:
+def get_usb_authorized_default() -> int | None:
+    """Get the default USB authorization state from usbcore."""
+    usbcore = Path("/sys/module/usbcore/parameters/authorized_default")
+    if not usbcore.exists():
+        return None
+
+    try:
+        return int(usbcore.read_text().strip())
+    except (OSError, ValueError) as e:
+        logger.warning("Failed to get default USB authorization for usbcore: %s", e)
+        return None
+
+
+def set_usb_authorized_default(authorized: int) -> None:
     """Set the default authorization state for usbcore and all USB root hubs."""
     # Set global usbcore authorized_default
     usbcore = Path("/sys/module/usbcore/parameters/authorized_default")
     if usbcore.exists():
         try:
-            usbcore.write_text("1" if authorized else "0")
+            usbcore.write_text(str(authorized))
         except OSError as e:
             logger.warning("Failed to set default USB authorization for usbcore: %s", e)
 
     # Set authorized_default for all USB root hubs
     for path in Path("/sys/bus/usb/devices").glob("usb*/authorized_default"):
         try:
-            path.write_text("1" if authorized else "0")
+            path.write_text(str(authorized))
         except OSError as e:
             logger.warning("Failed to set default USB authorization for %s: %s", path, e)
+
+
+def authorize_usb_hubs(context: pyudev.Context) -> None:
+    """Authorize all connected USB hubs so devices behind them can be enumerated."""
+    logger.info("Authorizing all connected USB hubs")
+    for device in context.list_devices(subsystem="usb"):
+        if not is_usb_device(device):
+            continue
+
+        usb_info = get_usb_info(device)
+        if not usb_info.is_usb_hub() or get_usb_device_authorization(usb_info) == 1:
+            continue
+
+        logger.info("Authorizing USB hub %s", usb_info.friendly_name())
+        authorize_usb_device(usb_info)
 
 
 def get_usb_device_authorization(usb_info: USBInfo) -> int | None:

@@ -27,7 +27,9 @@ from vhotplug.filewatcher import FileWatcher
 from vhotplug.pci import check_vfio
 from vhotplug.usb import (
     authorize_usb_device,
+    authorize_usb_hubs,
     get_drivers_from_modaliases,
+    get_usb_authorized_default,
     get_usb_device_authorization,
     set_usb_authorized_default,
 )
@@ -42,6 +44,12 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
         log_device(device)
         if is_usb_device(device):
             usb_info = get_usb_info(device)
+            if usb_info.is_usb_hub() and app_context.config.usb_authorization_enabled():
+                if get_usb_device_authorization(usb_info) != 1:
+                    logger.info("Authorizing USB hub %s", usb_info.friendly_name())
+                    authorize_usb_device(usb_info)
+                return
+
             logger.info(
                 "USB device %s connected: %s",
                 usb_info.friendly_name(),
@@ -175,9 +183,11 @@ async def async_main() -> None:
 
     app_context = AppContext(config, udev_monitor, udev_context, dev_state)
 
+    logger.info("Usbcore authorized_default: %s", get_usb_authorized_default())
     if config.usb_authorization_enabled():
-        logger.info("Setting authorized_default to 0 for usbcore and all USB root hubs")
-        set_usb_authorized_default(False)
+        logger.info("Enabling USB authorization")
+        set_usb_authorized_default(0)
+        authorize_usb_hubs(udev_context)
 
     api_server = None
     if config.api_enabled():
