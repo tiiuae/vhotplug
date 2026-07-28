@@ -162,7 +162,7 @@ async def async_main() -> None:
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
-    if not os.path.exists(args.config):
+    if not os.path.exists(args.config):  # noqa: ASYNC240
         logger.error("Configuration file %s not found", args.config)
         return
 
@@ -191,7 +191,7 @@ async def async_main() -> None:
 
     api_server = None
     if config.api_enabled():
-        api_server = APIServer(app_context, asyncio.get_event_loop())
+        api_server = APIServer(app_context, asyncio.get_running_loop())
         app_context.api_server = api_server
         api_server.start()
 
@@ -218,8 +218,7 @@ async def async_main() -> None:
 
 def main() -> None:
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(async_main())
+        asyncio.run(async_main())
     except asyncio.CancelledError:
         logger.info("Cancelled by event loop")
     except KeyboardInterrupt:
