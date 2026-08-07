@@ -451,11 +451,12 @@ async def attach_connected_usb(
                 usb_info.device_node,
             )
             logger.debug(
-                'Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"',
+                'Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s", removable: "%s"',
                 usb_info.device_class,
                 usb_info.device_subclass,
                 usb_info.device_protocol,
                 usb_info.interfaces,
+                usb_info.removable,
             )
             drivers = get_drivers_from_modaliases(
                 usb_info.get_modaliases(), app_context.config.get_modprobe(), app_context.config.get_modinfo()
@@ -1016,13 +1017,14 @@ def log_detected_devices(app_context: AppContext) -> None:
             continue
 
         logger.info(
-            "- %s, node: %s, class: %s, subclass: %s, protocol: %s, interfaces: %s",
+            "- %s, node: %s, class: %s, subclass: %s, protocol: %s, interfaces: %s, removable: %s",
             usb_info.friendly_name(),
             usb_info.device_node,
             usb_info.device_class,
             usb_info.device_subclass,
             usb_info.device_protocol,
             usb_info.interfaces,
+            usb_info.removable,
         )
 
     logger.info("PCI devices:")

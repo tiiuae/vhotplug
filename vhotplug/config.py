@@ -68,6 +68,22 @@ class Config:
         rule_description = usb_rule.get("description", "")
         logger.debug("Rule: %s", rule_description)
 
+        # Check removable attribute first
+        rule_removable = usb_rule.get("removable")
+        logger.debug("Checking removable %s against %s", usb_info.removable, rule_removable)
+        if "removable" in usb_rule:
+            removable_match = (
+                usb_info.removable
+                and isinstance(rule_removable, list)
+                and any(
+                    isinstance(value, str) and usb_info.removable.casefold() == value.casefold()
+                    for value in rule_removable
+                )
+            )
+            if not removable_match:
+                logger.debug("Removable attribute does not match, description: %s", rule_description)
+                return False
+
         # Match by VID/PID
         rule_vid = usb_rule.get("vendorId")
         rule_pid = usb_rule.get("productId")

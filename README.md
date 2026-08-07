@@ -33,6 +33,7 @@ The following parameters can be used for USB passthrough:
 - deviceClass — USB device class (e.g., 224)
 - deviceSubclass — USB device subclass (e.g., 1)
 - deviceProtocol — USB device protocol (e.g., 1)
+- removable — optional array of allowed sysfs USB removability values (`fixed`, `removable` or `unknown`)
 - driverPath — the path to the kernel driver module (supports regular expressions, used only when the device has no valid interfaces)
 
 Note: Many USB devices are composite devices, meaning they expose multiple interfaces. When matching against interfaceClass, interfaceSubclass and interfaceProtocol, it is sufficient for at least one interface to match the rule.
@@ -112,6 +113,11 @@ options:
         {
           "productName": ".*ethernet.*",
           "description": "Ethernet devices"
+        },
+        {
+          "interfaceClass": 14,
+          "removable": ["fixed"],
+          "description": "Built-in integrated USB webcams"
         },
         {
           "vendorId": "067b",

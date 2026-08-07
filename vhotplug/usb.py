@@ -29,6 +29,7 @@ class USBInfo(NamedTuple):
     sys_name: str | None = None
     bcd_device: int | None = None
     sys_path: str | None = None
+    removable: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,6 +163,12 @@ def _bytes_to_int(data: bytes | None) -> int | None:
         return None
 
 
+def _bytes_to_str(data: bytes | None) -> str | None:
+    if not data:
+        return None
+    return data.decode(errors="replace").strip() or None
+
+
 def _get_ports(sys_name: str) -> list[int]:
     try:
         parts = sys_name.split("-")
@@ -189,6 +196,7 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
     sys_name = device.sys_name
     bcd_device = _bytes_to_int(device.attributes.get("bcdDevice"))
     sys_path = device.sys_path
+    removable = _bytes_to_str(device.attributes.get("removable"))
 
     return USBInfo(
         device_node,
@@ -207,6 +215,7 @@ def get_usb_info(device: pyudev.Device) -> USBInfo:
         sys_name,
         bcd_device,
         sys_path,
+        removable,
     )
 
 

@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 from vhotplug.config import Config
 from vhotplug.pci import PCIInfo
-from vhotplug.usb import USBInfo
+from vhotplug.usb import USBInfo, get_usb_info
 
 
 def test_input() -> None:
@@ -133,6 +135,84 @@ def test_wrong_bus_port() -> None:
     config = Config("config.json")
     res = config.vm_for_device(USBInfo(busnum=11, ports=[33, 22, 44]))
     assert res is None
+
+
+def test_usb_removable(tmp_path: Path) -> None:
+    config_path = tmp_path / "usb-removable.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "usbPassthrough": [
+                    {
+                        "targetVm": "vm1",
+                        "allow": [{"productName": "Integrated.*", "removable": ["fixed", "unknown"]}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config(str(config_path))
+
+    assert config.vm_for_device(USBInfo(product_name="Integrated Camera", removable="fixed")) is not None
+    assert config.vm_for_device(USBInfo(product_name="Integrated Camera", removable="FIXED")) is not None
+    assert config.vm_for_device(USBInfo(product_name="Integrated Camera", removable="unknown")) is not None
+    assert config.vm_for_device(USBInfo(product_name="Integrated Camera", removable="removable")) is None
+    assert config.vm_for_device(USBInfo(product_name="Integrated Camera")) is None
+    assert config.vm_for_device(USBInfo(product_name="External Camera", removable="fixed")) is None
+
+
+def test_usb_removable_is_not_a_standalone_match(tmp_path: Path) -> None:
+    config_path = tmp_path / "usb-removable-only.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "usbPassthrough": [
+                    {
+                        "targetVm": "vm1",
+                        "allow": [{"removable": ["fixed"]}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert Config(str(config_path)).vm_for_device(USBInfo(removable="fixed")) is None
+
+
+def test_usb_removable_string_is_rejected(tmp_path: Path) -> None:
+    config_path = tmp_path / "usb-removable-string.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "usbPassthrough": [
+                    {
+                        "targetVm": "vm1",
+                        "allow": [{"productName": "Integrated.*", "removable": "fixed"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert Config(str(config_path)).vm_for_device(USBInfo(product_name="Integrated Camera", removable="fixed")) is None
+
+
+def test_get_usb_removable_attribute() -> None:
+    device = SimpleNamespace(
+        device_node="/dev/bus/usb/001/002",
+        properties={"BUSNUM": "1", "DEVNUM": "2"},
+        attributes={"removable": b"fixed\n"},
+        sys_name="1-2",
+        sys_path="/sys/devices/usb1/1-2",
+    )
+
+    usb_info = get_usb_info(cast(Any, device))
+
+    assert usb_info.removable == "fixed"
+    assert "removable" not in usb_info.to_dict()
 
 
 def test_pci_rule_auto_ovmf(tmp_path: Path) -> None:

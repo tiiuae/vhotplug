@@ -56,11 +56,12 @@ async def device_event(app_context: AppContext, device: pyudev.Device) -> None:
                 device.device_node,
             )
             logger.info(
-                'Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s"',
+                'Device class: "%s", subclass: "%s", protocol: "%s", interfaces: "%s", removable: "%s"',
                 usb_info.device_class,
                 usb_info.device_subclass,
                 usb_info.device_protocol,
                 usb_info.interfaces,
+                usb_info.removable,
             )
 
             drivers = get_drivers_from_modaliases(
