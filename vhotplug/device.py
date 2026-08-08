@@ -257,7 +257,8 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
 
     # Attach device to the VM
     try:
-        await vmm_add_device(app_context, vm, dev_info)
+        crosvm_usb_port = app_context.dev_state.get_crosvm_usb_port(dev_info) if isinstance(dev_info, USBInfo) else None
+        attached_port = await vmm_add_device(app_context, vm, dev_info, crosvm_usb_port)
     except Exception:
         if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled():
             logger.info("Deauthorizing %s", dev_info.friendly_name())
@@ -265,6 +266,8 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
         raise
 
     # Add selected VM to the state database
+    if isinstance(dev_info, USBInfo):
+        app_context.dev_state.set_crosvm_usb_port(dev_info, attached_port)
     app_context.dev_state.set_vm_for_device(dev_info, vm_name)
     app_context.dev_state.clear_disconnected(dev_info)
 
@@ -332,7 +335,8 @@ async def _remove_device_from_vm(
 ) -> None:
     """Removes device from VM, saves its state and sends a notification."""
     # Remove from VM
-    await vmm_remove_device(app_context, vm, dev_info)
+    crosvm_usb_port = app_context.dev_state.get_crosvm_usb_port(dev_info) if isinstance(dev_info, USBInfo) else None
+    await vmm_remove_device(app_context, vm, dev_info, crosvm_usb_port)
 
     if wait:
         # Wait until the device is no longer in the list
