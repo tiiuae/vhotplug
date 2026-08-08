@@ -17,6 +17,11 @@ class DeviceState:
         # Runtime map of USB device_node - VM, used to know from which VM to disconnect
         self.usb_device_vm_map: dict[str, str] = {}
 
+        # Persistent map of USB device_node - Crosvm guest port. Crosvm only
+        # reports VID/PID when listing devices, which is ambiguous for
+        # identical devices, so retain the port returned by attach.
+        self.crosvm_usb_port_map: dict[str, int] = {}
+
         # Runtime map of PCI address - VM, used to know from which VM to disconnect
         self.pci_device_vm_map: dict[str, str] = {}
 
@@ -40,6 +45,13 @@ class DeviceState:
                     j = json.load(f)
                     self.selected_vms = j.get("selected_vms", {})
                     self.disconnected_devices = set(j.get("disconnected_devices", []))
+                    ports = j.get("crosvm_usb_ports", {})
+                    if isinstance(ports, dict):
+                        self.crosvm_usb_port_map = {
+                            key: value
+                            for key, value in ports.items()
+                            if isinstance(key, str) and isinstance(value, int) and 0 <= value <= 255
+                        }
             except OSError as e:
                 logger.warning("Failed to load USB state database: %s", e)
 
@@ -49,6 +61,7 @@ class DeviceState:
                 j = {
                     "selected_vms": self.selected_vms,
                     "disconnected_devices": list(self.disconnected_devices),
+                    "crosvm_usb_ports": self.crosvm_usb_port_map,
                 }
                 json.dump(j, f, ensure_ascii=False, indent=2)
 
@@ -74,6 +87,9 @@ class DeviceState:
             if isinstance(dev_info, USBInfo):
                 if dev_info.device_node in self.usb_device_vm_map:
                     del self.usb_device_vm_map[dev_info.device_node]
+                if dev_info.device_node in self.crosvm_usb_port_map:
+                    del self.crosvm_usb_port_map[dev_info.device_node]
+                    self._save()
             elif dev_info.address in self.pci_device_vm_map:
                 del self.pci_device_vm_map[dev_info.address]
 
@@ -114,6 +130,22 @@ class DeviceState:
     def list_usb_devices(self) -> dict[str, str]:
         with self.lock:
             return dict(self.usb_device_vm_map)
+
+    def set_crosvm_usb_port(self, dev_info: USBInfo, port: int | None) -> None:
+        with self.lock:
+            if dev_info.device_node is None:
+                return
+            if port is None:
+                self.crosvm_usb_port_map.pop(dev_info.device_node, None)
+            else:
+                self.crosvm_usb_port_map[dev_info.device_node] = port
+            self._save()
+
+    def get_crosvm_usb_port(self, dev_info: USBInfo) -> int | None:
+        with self.lock:
+            if dev_info.device_node is None:
+                return None
+            return self.crosvm_usb_port_map.get(dev_info.device_node)
 
     def list_pci_devices(self) -> dict[str, str]:
         with self.lock:
