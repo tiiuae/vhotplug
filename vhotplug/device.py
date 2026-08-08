@@ -9,6 +9,7 @@ import pyudev
 
 from vhotplug.appcontext import AppContext
 from vhotplug.config import PassthroughInfo
+from vhotplug.crosvmlink import CrosvmVMUnavailableError
 from vhotplug.evdev import EvdevInfo, evdev_test_grab, get_evdev_info, is_input_device
 from vhotplug.pci import (
     PCIInfo,
@@ -237,10 +238,7 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
     current_vm_name = app_context.dev_state.get_vm_for_device(dev_info)
     if current_vm_name and current_vm_name != vm_name:
         logger.warning("Device is attached to %s, removing...", current_vm_name)
-        try:
-            await remove_device(app_context, dev_info)
-        except RuntimeError as e:
-            logger.warning("Failed to remove: %s", e)
+        await remove_device(app_context, dev_info)
 
     # Setup VFIO for all PCI devices in the IOMMU group if needed
     if isinstance(dev_info, PCIInfo):
@@ -257,7 +255,13 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
 
     # Attach device to the VM
     try:
-        await vmm_add_device(app_context, vm, dev_info)
+        vm_socket = vm.get("socket", "")
+        crosvm_usb_port = (
+            app_context.dev_state.get_crosvm_usb_port(dev_info, vm_name, vm_socket)
+            if isinstance(dev_info, USBInfo) and vm.get("type") == "crosvm"
+            else None
+        )
+        attached_port = await vmm_add_device(app_context, vm, dev_info, crosvm_usb_port)
     except Exception:
         if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled():
             logger.info("Deauthorizing %s", dev_info.friendly_name())
@@ -266,6 +270,8 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
 
     # Add selected VM to the state database
     app_context.dev_state.set_vm_for_device(dev_info, vm_name)
+    if isinstance(dev_info, USBInfo) and vm.get("type") == "crosvm":
+        app_context.dev_state.set_crosvm_usb_port(dev_info, vm_name, vm_socket, attached_port)
     app_context.dev_state.clear_disconnected(dev_info)
 
     if app_context.api_server:
@@ -332,7 +338,17 @@ async def _remove_device_from_vm(
 ) -> None:
     """Removes device from VM, saves its state and sends a notification."""
     # Remove from VM
-    await vmm_remove_device(app_context, vm, dev_info)
+    vm_name = vm.get("name", "")
+    vm_socket = vm.get("socket", "")
+    crosvm_usb_port = (
+        app_context.dev_state.get_crosvm_usb_port(dev_info, vm_name, vm_socket)
+        if isinstance(dev_info, USBInfo) and vm.get("type") == "crosvm"
+        else None
+    )
+    try:
+        await vmm_remove_device(app_context, vm, dev_info, crosvm_usb_port)
+    except CrosvmVMUnavailableError as e:
+        logger.warning("VM is unavailable while removing %s: %s", dev_info.friendly_name(), e)
 
     if wait:
         # Wait until the device is no longer in the list

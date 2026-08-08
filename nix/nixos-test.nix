@@ -48,6 +48,8 @@ pkgs.testers.runNixOSTest {
     machine.start()
     machine.wait_for_unit("vhotplug.service")
     machine.succeed("systemctl status vhotplug.service")
+    machine.succeed("test $(stat -c %a /var/lib/vhotplug) = 700")
+    machine.succeed("test $(systemctl show -P UMask vhotplug.service) = 0077")
 
     # Verify vhotplug is waiting for devices
     machine.wait_until_succeeds("journalctl -u vhotplug.service | grep -q 'Waiting for new devices'")
