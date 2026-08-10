@@ -110,7 +110,7 @@ async def vmm_resume(vm: dict[str, str]) -> None:
         await qemu.resume()
 
 
-async def vmm_is_pci_dev_connected(vm: dict[str, str], pci_info: PCIInfo) -> bool:
+async def vmm_is_pci_dev_connected(app_context: AppContext, vm: dict[str, str], pci_info: PCIInfo) -> bool:
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
     if not vm_socket:
@@ -119,10 +119,13 @@ async def vmm_is_pci_dev_connected(vm: dict[str, str], pci_info: PCIInfo) -> boo
     if vm_type == "qemu":
         qemu = QEMULink(vm_socket)
         return await qemu.is_pci_dev_connected(pci_info)
+    if vm_type == "crosvm":
+        crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
+        return await crosvm.is_pci_dev_connected(pci_info)
     return False
 
 
-async def vmm_wait_until_removed(vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_wait_until_removed(app_context: AppContext, vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:
     """Waits until the device is removed from the VM."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -135,6 +138,9 @@ async def vmm_wait_until_removed(vm: dict[str, Any], dev_info: USBInfo | PCIInfo
             await qemu.wait_until_usb_removed(dev_info)
         else:
             await qemu.wait_until_pci_removed(dev_info)
+    elif vm_type == "crosvm" and isinstance(dev_info, PCIInfo):
+        crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
+        await crosvm.wait_until_pci_removed(dev_info)
 
 
 def vmm_args_pci(
@@ -147,7 +153,7 @@ def vmm_args_pci(
         bus = f",bus={qemu_bus_prefix}{n}" if qemu_bus_prefix and not qemu_use_root_bus else ""
         return ["-device", f"vfio-pci,host={sys_name},multifunction=on,id={qemuid}{bus}"]
     if vm_type == "crosvm":
-        return ["--vfio", f"/sys/bus/pci/devices/{sys_name},iommu=viommu"]
+        return ["--vfio", f"/sys/bus/pci/devices/{sys_name},iommu=viommu,removable=true"]
     if vm_type == "cloud-hypervisor":
         return ["--device", f"path=/sys/bus/pci/devices/{sys_name}"]
     raise RuntimeError(f"Unsupported vm type: {vm_type}")
@@ -189,7 +195,7 @@ def vmm_args_acpi_table(vm: dict[str, str], acpi_table: str) -> list[str]:
     if vm_type == "qemu":
         return ["-acpitable", f"file={acpi_table}"]
     if vm_type == "crosvm":
-        logger.error("Crosvm doesn't support ACPI table passthrough")
+        return ["--acpi-table", acpi_table]
     if vm_type == "cloud-hypervisor":
         logger.error("Cloud Hypervisor doesn't support ACPI table passthrough")
     raise RuntimeError(f"Unsupported vm type: {vm_type}")

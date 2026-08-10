@@ -1,12 +1,21 @@
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from vhotplug import vmm as vmm_module
+from vhotplug.appcontext import AppContext
 from vhotplug.pci import PCIInfo, pci_is_nvidia_gpu
 from vhotplug.usb import USBInfo
-from vhotplug.vmm import vmm_add_device, vmm_args_ovmf, vmm_args_pci
+from vhotplug.vmm import (
+    vmm_add_device,
+    vmm_args_acpi_table,
+    vmm_args_ovmf,
+    vmm_args_pci,
+    vmm_is_pci_dev_connected,
+    vmm_wait_until_removed,
+)
 
 
 def test_pci_is_nvidia_gpu_display_controller() -> None:
@@ -98,3 +107,41 @@ def test_vmm_add_device_returns_none_for_qemu_usb(monkeypatch: pytest.MonkeyPatc
     )
 
     assert port is None
+
+
+def test_vmm_args_pci_crosvm_is_removable() -> None:
+    assert vmm_args_pci({"type": "crosvm"}, PCIInfo(address="0000:00:1f.3"), 0, None) == [
+        "--vfio",
+        "/sys/bus/pci/devices/0000:00:1f.3,iommu=viommu,removable=true",
+    ]
+
+
+def test_vmm_args_acpi_table_crosvm() -> None:
+    assert vmm_args_acpi_table({"type": "crosvm"}, "/run/nhlt.aml") == ["--acpi-table", "/run/nhlt.aml"]
+
+
+def test_crosvm_pci_queries_use_configured_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    binaries: list[str | None] = []
+
+    class FakeCrosvmLink:
+        def __init__(self, _socket: str, crosvm_bin: str | None) -> None:
+            binaries.append(crosvm_bin)
+
+        async def is_pci_dev_connected(self, _pci_info: PCIInfo) -> bool:
+            return True
+
+        async def wait_until_pci_removed(self, _pci_info: PCIInfo) -> None:
+            return
+
+    monkeypatch.setattr(vmm_module, "CrosvmLink", FakeCrosvmLink)
+    app_context = cast(
+        AppContext,
+        SimpleNamespace(config=SimpleNamespace(config={"general": {"crosvm": "/nix/store/crosvm/bin/crosvm"}})),
+    )
+    vm = {"type": "crosvm", "socket": "/run/net-vm.sock"}
+    pci_info = PCIInfo(address="0000:00:14.3")
+
+    assert asyncio.run(vmm_is_pci_dev_connected(app_context, vm, pci_info))
+    asyncio.run(vmm_wait_until_removed(app_context, vm, pci_info))
+
+    assert binaries == ["/nix/store/crosvm/bin/crosvm"] * 2

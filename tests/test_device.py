@@ -1,11 +1,14 @@
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from vhotplug import device as device_module
+from vhotplug.appcontext import AppContext
 from vhotplug.crosvmlink import CrosvmVMUnavailableError
 from vhotplug.device import _attach_device_to_vm, _remove_device_from_vm
+from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
 
 
@@ -133,3 +136,41 @@ def test_crosvm_attach_passes_and_records_guest_port(monkeypatch: pytest.MonkeyP
 
     assert state.current_vm == "app-vm"
     assert state.attached_port == 9
+
+
+def pci_attach_context() -> tuple[AppContext, dict[str, Any]]:
+    passthrough_info = SimpleNamespace(target_vm="net-vm", order=0)
+    pci_info = PCIInfo(address="0000:00:14.3")
+    device = {
+        "pci_info": pci_info,
+        "passthrough_info": passthrough_info,
+        "current_vm": None,
+        "iommu_member": False,
+    }
+    config = SimpleNamespace(get_vm=lambda _name: {"name": "net-vm", "type": "crosvm"})
+    return cast(AppContext, SimpleNamespace(config=config)), device
+
+
+def test_pci_resume_propagates_attach_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_context, device = pci_attach_context()
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [device])
+
+    async def fail_attach(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("Crosvm VFIO add failed")
+
+    monkeypatch.setattr(device_module, "attach_device", fail_attach)
+
+    with pytest.raises(RuntimeError, match=r"0000:00:14\.3.*Crosvm VFIO add failed"):
+        asyncio.run(device_module.attach_connected_pci(app_context, fail_on_error=True))
+
+
+def test_background_reconciliation_logs_attach_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_context, device = pci_attach_context()
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [device])
+
+    async def fail_attach(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("Crosvm VFIO add failed")
+
+    monkeypatch.setattr(device_module, "attach_device", fail_attach)
+
+    asyncio.run(device_module.attach_connected_pci(app_context))

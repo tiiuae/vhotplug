@@ -352,7 +352,7 @@ async def _remove_device_from_vm(
 
     if wait:
         # Wait until the device is no longer in the list
-        await vmm_wait_until_removed(vm, dev_info)
+        await vmm_wait_until_removed(app_context, vm, dev_info)
 
     logger.info("Removed %s", dev_info.friendly_name())
 
@@ -692,7 +692,11 @@ def _get_pci_devices(
 
 
 async def attach_connected_pci(
-    app_context: AppContext, vms_scope: list[str] | None = None, tag: str | None = None
+    app_context: AppContext,
+    vms_scope: list[str] | None = None,
+    tag: str | None = None,
+    *,
+    fail_on_error: bool = False,
 ) -> None:
     """Finds all PCI devices that match the rules from the config and attaches them to VMs."""
     if vms_scope is None:
@@ -711,6 +715,8 @@ async def attach_connected_pci(
     # They are checked and attached atomically in the attach_device function with VM pause/resume
     devices = _get_pci_devices(app_context, disconnected, False)
 
+    failures: list[str] = []
+
     # Attach to VMs
     for device in devices:
         # Get VM details from the config
@@ -719,7 +725,7 @@ async def attach_connected_pci(
         if not vm:
             raise RuntimeError(f"VM {passthrough_info.target_vm} is not found in the config file")
 
-        if vm.get("type") != "qemu":
+        if vm.get("type") not in {"qemu", "crosvm"}:
             continue
 
         if tag and tag != passthrough_info.tag:
@@ -727,8 +733,12 @@ async def attach_connected_pci(
 
         try:
             await attach_device(app_context, passthrough_info, device["pci_info"], False, vms_scope)
-        except RuntimeError:
+        except RuntimeError as error:
             logger.exception("Failed to attach PCI device %s", device["pci_info"].friendly_name())
+            failures.append(f"{device['pci_info'].friendly_name()}: {error}")
+
+    if failures and fail_on_error:
+        raise RuntimeError("Failed to attach PCI devices: " + "; ".join(failures))
 
 
 async def detach_connected_pci(
@@ -812,7 +822,7 @@ async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] 
                 vm = app_context.config.get_vm(res.target_vm)
                 if not vm:
                     logger.warning("VM %s not found in the configuration file", res.target_vm)
-                elif await vmm_is_pci_dev_connected(vm, pci_info):
+                elif await vmm_is_pci_dev_connected(app_context, vm, pci_info):
                     logger.info("Detaching %s from %s", pci_info.friendly_name(), res.target_vm)
                     await vmm_remove_device(app_context, vm, pci_info)
             except RuntimeError:
@@ -987,6 +997,9 @@ def get_vmm_args(
 
     if needs_ovmf:
         args = vmm_args_ovmf(vm, app_context.config.get_ovmf_code(), app_context.config.get_ovmf_vars()) + args
+
+    if vm.get("type") == "crosvm" and any(arg == "--vfio" for arg in args):
+        args = ["--vfio-isolate-hotplug", "--pci-hotplug-slots", "1", *args]
 
     # Get ACPI tables for the VM
     for table in app_context.config.get_acpi_tables(vm_name):

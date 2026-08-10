@@ -1,9 +1,10 @@
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from vhotplug.crosvmlink import CrosvmLink, CrosvmVMUnavailableError
+from vhotplug.pci import PCIInfo
 from vhotplug.usb import USBInfo
 
 
@@ -136,3 +137,112 @@ def test_no_available_port_does_not_detach_other_devices(monkeypatch: pytest.Mon
         asyncio.run(crosvm.add_usb_device(usb()))
 
     assert not any(command[1:3] == ("usb", "detach") for command in calls)
+
+
+def pci() -> PCIInfo:
+    return PCIInfo(address="0000:00:1f.3")
+
+
+def fake_crosvm_vfio(monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, ...]], set[str]]:
+    calls: list[tuple[str, ...]] = []
+    attached: set[str] = set()
+
+    async def execute(*args: str, **_kwargs: Any) -> FakeProcess:
+        calls.append(args)
+        command = args[2]
+        if command == "list":
+            return FakeProcess("devices" + "".join(f" {path}" for path in sorted(attached)))
+        path = args[3]
+        if command == "add":
+            attached.add(path)
+        elif command == "remove":
+            attached.discard(path)
+        else:
+            raise AssertionError(f"Unexpected Crosvm command: {args}")
+        # Successful add/remove commands do not print a response; callers
+        # verify completion with the subsequent list command.
+        return FakeProcess("")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    return calls, attached
+
+
+def test_pci_add_reconciles_against_crosvm_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls, attached = fake_crosvm_vfio(monkeypatch)
+    crosvm = link(monkeypatch)
+
+    asyncio.run(crosvm.add_pci_device(pci()))
+    asyncio.run(crosvm.add_pci_device(pci()))
+
+    path = "/sys/bus/pci/devices/0000:00:1f.3"
+    assert attached == {path}
+    assert len([command for command in calls if command[1:3] == ("vfio", "add")]) == 1
+
+
+def test_pci_remove_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls, attached = fake_crosvm_vfio(monkeypatch)
+    path = "/sys/bus/pci/devices/0000:00:1f.3"
+    attached.add(path)
+    crosvm = link(monkeypatch)
+
+    asyncio.run(crosvm.remove_pci_device(pci()))
+    asyncio.run(crosvm.remove_pci_device(pci()))
+
+    assert not attached
+    assert len([command for command in calls if command[1:3] == ("vfio", "remove")]) == 1
+
+
+def test_pci_add_retries_transient_list_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls, attached = fake_crosvm_vfio(monkeypatch)
+    original_execute: Any = asyncio.create_subprocess_exec
+    failures = 1
+
+    async def execute(*args: str, **kwargs: Any) -> FakeProcess:
+        nonlocal failures
+        if args[1:3] == ("vfio", "list") and failures:
+            failures -= 1
+            return FakeProcess("", returncode=1)
+        return cast(FakeProcess, await original_execute(*args, **kwargs))
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    crosvm = link(monkeypatch)
+    crosvm.vm_retry_timeout = 0
+
+    asyncio.run(crosvm.add_pci_device(pci()))
+
+    assert attached == {"/sys/bus/pci/devices/0000:00:1f.3"}
+    assert len([command for command in calls if command[1:3] == ("vfio", "add")]) == 1
+
+
+def test_pci_remove_retries_failed_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls, attached = fake_crosvm_vfio(monkeypatch)
+    original_execute: Any = asyncio.create_subprocess_exec
+    path = "/sys/bus/pci/devices/0000:00:1f.3"
+    attached.add(path)
+    failures = 1
+
+    async def execute(*args: str, **kwargs: Any) -> FakeProcess:
+        nonlocal failures
+        if args[1:3] == ("vfio", "remove") and failures:
+            calls.append(args)
+            failures -= 1
+            return FakeProcess("", returncode=1)
+        return cast(FakeProcess, await original_execute(*args, **kwargs))
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    crosvm = link(monkeypatch)
+    crosvm.vm_retry_timeout = 0
+
+    asyncio.run(crosvm.remove_pci_device(pci()))
+
+    assert not attached
+    assert len([command for command in calls if command[1:3] == ("vfio", "remove")]) == 2
+
+
+def test_pci_list_rejects_failed_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def execute(*_args: str, **_kwargs: Any) -> FakeProcess:
+        return FakeProcess("", returncode=1)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    with pytest.raises(RuntimeError, match="VFIO list failed"):
+        asyncio.run(link(monkeypatch).pci_list())

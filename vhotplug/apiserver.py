@@ -464,7 +464,12 @@ class APIServer:
         vm = msg.get("vm")
         logger.info("PCI resume: %s", vm)
         asyncio.run_coroutine_threadsafe(
-            attach_connected_pci(self.app_context, [vm] if vm else None), self.loop
+            attach_connected_pci(
+                self.app_context,
+                [vm] if vm else None,
+                fail_on_error=True,
+            ),
+            self.loop,
         ).result()
         return {"result": "ok"}
 
