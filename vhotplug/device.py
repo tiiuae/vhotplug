@@ -38,6 +38,7 @@ from vhotplug.vmm import (
     vmm_args_evdev,
     vmm_args_ovmf,
     vmm_args_pci,
+    vmm_check_pci_hotplug,
     vmm_is_pci_dev_connected,
     vmm_remove_device,
     vmm_wait_until_removed,
@@ -242,6 +243,8 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
 
     # Setup VFIO for all PCI devices in the IOMMU group if needed
     if isinstance(dev_info, PCIInfo):
+        # Probe the live Crosvm interface before detaching any host driver.
+        await vmm_check_pci_hotplug(app_context, vm)
         setup_vfio(dev_info)
 
     # Authorize USB device
@@ -266,6 +269,11 @@ async def _attach_device_to_vm(app_context: AppContext, dev_info: USBInfo | PCII
         if isinstance(dev_info, USBInfo) and app_context.config.usb_authorization_enabled():
             logger.info("Deauthorizing %s", dev_info.friendly_name())
             deauthorize_usb_device(dev_info)
+        elif isinstance(dev_info, PCIInfo):
+            logger.exception(
+                "Failed to attach %s; its IOMMU group remains quarantined under vfio-pci and will be retried",
+                dev_info.friendly_name(),
+            )
         raise
 
     # Add selected VM to the state database
@@ -571,7 +579,7 @@ async def attach_existing_pci_device_by_vid_did(
 
 async def attach_existing_pci_devices_by_tag(app_context: AppContext, tag: str) -> None:
     """Find PCI devices by tag and attach to VM."""
-    await attach_connected_pci(app_context, tag=tag)
+    await attach_connected_pci(app_context, tag=tag, fail_on_error=True)
 
 
 async def remove_existing_pci_device(app_context: AppContext, pci_address: str, permanent: bool = False) -> None:
@@ -595,7 +603,7 @@ async def remove_existing_pci_device_by_vid_did(
 
 async def remove_existing_pci_devices_by_tag(app_context: AppContext, tag: str, permanent: bool = False) -> None:
     """Find PCI devices by tag and detach from VM."""
-    await detach_connected_pci(app_context, tag=tag, permanent=permanent)
+    await detach_connected_pci(app_context, tag=tag, permanent=permanent, fail_on_error=True)
 
 
 def _get_pci_devices(
@@ -723,7 +731,8 @@ async def attach_connected_pci(
         passthrough_info = device["passthrough_info"]
         vm = app_context.config.get_vm(passthrough_info.target_vm)
         if not vm:
-            raise RuntimeError(f"VM {passthrough_info.target_vm} is not found in the config file")
+            failures.append(f"VM {passthrough_info.target_vm} is not found in the config file")
+            continue
 
         if vm.get("type") not in {"qemu", "crosvm"}:
             continue
@@ -737,8 +746,11 @@ async def attach_connected_pci(
             logger.exception("Failed to attach PCI device %s", device["pci_info"].friendly_name())
             failures.append(f"{device['pci_info'].friendly_name()}: {error}")
 
-    if failures and fail_on_error:
-        raise RuntimeError("Failed to attach PCI devices: " + "; ".join(failures))
+    if failures:
+        message = "Failed to attach PCI devices: " + "; ".join(failures)
+        logger.error(message)
+        if fail_on_error:
+            raise RuntimeError(message)
 
 
 async def detach_connected_pci(
@@ -747,6 +759,8 @@ async def detach_connected_pci(
     suspend: bool = False,
     tag: str | None = None,
     permanent: bool = False,
+    *,
+    fail_on_error: bool = False,
 ) -> None:
     """Detach all connected PCI devices from VMs."""
     if vms_scope is None:
@@ -756,6 +770,7 @@ async def detach_connected_pci(
     else:
         logger.info("Detaching PCI devices from %s", vms_scope)
 
+    failures: list[str] = []
     for pci_address in app_context.dev_state.list_pci_devices():
         pci_info = pci_info_by_address(app_context, pci_address)
         if pci_info is None:
@@ -787,11 +802,18 @@ async def detach_connected_pci(
 
                 try:
                     await _remove_existing_device(app_context, pci_info, permanent)
-                except RuntimeError:
+                except RuntimeError as error:
                     logger.exception("Failed to remove %s", pci_info.friendly_name())
+                    failures.append(f"{pci_info.friendly_name()}: {error}")
             else:
                 # That's normal for IOMMU group members when pciIommuAddAll is enabled
                 logger.debug("Device %s does not match any rules", pci_info.friendly_name())
+
+    if failures:
+        message = "Failed to detach PCI devices: " + "; ".join(failures)
+        logger.error(message)
+        if fail_on_error:
+            raise RuntimeError(message)
 
 
 async def detach_disconnected_pci(app_context: AppContext, vms_scope: list[str] | None = None) -> None:
@@ -998,8 +1020,10 @@ def get_vmm_args(
     if needs_ovmf:
         args = vmm_args_ovmf(vm, app_context.config.get_ovmf_code(), app_context.config.get_ovmf_vars()) + args
 
-    if vm.get("type") == "crosvm" and any(arg == "--vfio" for arg in args):
-        args = ["--vfio-isolate-hotplug", "--pci-hotplug-slots", "1", *args]
+    if vm.get("type") == "crosvm" and app_context.config.has_pci_passthrough_for_vm(vm_name):
+        # Hot-added VFIO devices only join the virtio-IOMMU when this is set,
+        # including when no matching endpoint was present during VM startup.
+        args = ["--vfio-isolate-hotplug", *args]
 
     # Get ACPI tables for the VM
     for table in app_context.config.get_acpi_tables(vm_name):

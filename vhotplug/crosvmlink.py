@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import socket
 from typing import ClassVar
 
@@ -23,6 +24,7 @@ class CrosvmLink:
     vm_retry_timeout = 1
     vm_wait_after_boot = 3
     vm_boot_timeout = 10
+    vfio_command_timeout: float = 10
     usb_locks: ClassVar[dict[str, asyncio.Lock]] = {}
 
     def __init__(self, socket_path: str, crosvm_bin: str | None) -> None:
@@ -37,6 +39,15 @@ class CrosvmLink:
         return wait_for_unix_socket(
             self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot, socket.SOCK_SEQPACKET
         )
+
+    async def ensure_pci_hotplug(self) -> None:
+        """Verify the live VM exposes the required VFIO control interface."""
+        if not await asyncio.to_thread(self._wait_for_boot):
+            raise CrosvmVMUnavailableError(f"Crosvm VM is unavailable at {self.socket_path}")
+        try:
+            await self.pci_list()
+        except RuntimeError as error:
+            raise RuntimeError(f"Crosvm at {self.socket_path} has no usable VFIO list interface: {error}") from error
 
     async def add_usb_device(self, usb_info: USBInfo, known_port: int | None = None) -> int:
         async with self.usb_locks.setdefault(self.socket_path, asyncio.Lock()):
@@ -287,62 +298,101 @@ class CrosvmLink:
 
     async def add_pci_device(self, _pci_info: PCIInfo) -> None:
         pci_path = self._pci_path(_pci_info)
-        if not self._wait_for_boot():
+        if not await asyncio.to_thread(self._wait_for_boot):
             logger.warning("VM is not booted while adding PCI device %s", pci_path)
 
+        added = False
+        last_error: RuntimeError | None = None
         for attempt in range(self.vm_retry_count + 1):
             try:
                 if pci_path in await self.pci_list():
-                    logger.info("PCI device %s is already attached", pci_path)
+                    if not added:
+                        logger.info("PCI device %s is already attached", pci_path)
                     return
-                await self._run_vfio_command("add", pci_path)
-                if pci_path in await self.pci_list():
-                    return
+                if not added:
+                    await self._run_vfio_command("add", pci_path)
+                    added = True
+                    if pci_path in await self.pci_list():
+                        return
+                last_error = RuntimeError("Crosvm accepted VFIO add but the device did not appear")
             except RuntimeError as error:
+                last_error = error
                 logger.warning("Failed to attach PCI device %s: %s", pci_path, error)
             if attempt < self.vm_retry_count:
                 await asyncio.sleep(self.vm_retry_timeout)
 
-        raise RuntimeError(f"Timed out attaching PCI device {pci_path}")
+        raise RuntimeError(
+            f"Timed out attaching PCI device {pci_path} after {self.vm_retry_count + 1} attempts: {last_error}"
+        ) from last_error
 
     async def remove_pci_device(self, _pci_info: PCIInfo) -> None:
         pci_path = self._pci_path(_pci_info)
+        removed = False
+        last_error: RuntimeError | None = None
         for attempt in range(self.vm_retry_count + 1):
             try:
                 if pci_path not in await self.pci_list():
-                    logger.debug("PCI device %s is already detached", pci_path)
+                    if not removed:
+                        logger.info("PCI device %s is already detached", pci_path)
                     return
-                await self._run_vfio_command("remove", pci_path)
-                if pci_path not in await self.pci_list():
-                    return
+                if not removed:
+                    await self._run_vfio_command("remove", pci_path)
+                    removed = True
+                    if pci_path not in await self.pci_list():
+                        return
+                last_error = RuntimeError("Crosvm accepted VFIO remove but the device is still attached")
             except RuntimeError as error:
+                last_error = error
                 logger.warning("Failed to detach PCI device %s: %s", pci_path, error)
             if attempt < self.vm_retry_count:
                 await asyncio.sleep(self.vm_retry_timeout)
 
-        raise RuntimeError(f"Timed out detaching PCI device {pci_path}")
+        raise RuntimeError(
+            f"Timed out detaching PCI device {pci_path} after {self.vm_retry_count + 1} attempts: {last_error}"
+        ) from last_error
 
     async def pci_list(self) -> list[str]:
         stdout = await self._run_vfio_command("list")
         result = stdout.split()
         if not result or result[0] != "devices":
             raise RuntimeError(f"Malformed Crosvm VFIO list response: {stdout.strip()}")
-        return result[1:]
+        devices = result[1:]
+        unexpected = [
+            entry
+            for entry in devices
+            if re.fullmatch(r"/sys/bus/pci/devices/[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\.[0-7]", entry) is None
+        ]
+        if unexpected:
+            raise RuntimeError(f"Unexpected entries in Crosvm VFIO list response: {unexpected}")
+        return devices
 
     async def is_pci_dev_connected(self, pci_info: PCIInfo) -> bool:
-        return self._pci_path(pci_info) in await self.pci_list()
+        await self.ensure_pci_hotplug()
+        pci_path = self._pci_path(pci_info)
+        last_error: RuntimeError | None = None
+        for attempt in range(self.vm_retry_count + 1):
+            try:
+                return pci_path in await self.pci_list()
+            except RuntimeError as error:
+                last_error = error
+                logger.warning("Failed to query PCI device %s: %s", pci_path, error)
+            if attempt < self.vm_retry_count:
+                await asyncio.sleep(self.vm_retry_timeout)
+        raise RuntimeError(f"Timed out querying PCI device {pci_path}: {last_error}") from last_error
 
     async def wait_until_pci_removed(self, pci_info: PCIInfo) -> None:
         pci_path = self._pci_path(pci_info)
+        last_error: RuntimeError | None = None
         for attempt in range(self.vm_retry_count + 1):
             try:
                 if pci_path not in await self.pci_list():
                     return
             except RuntimeError as error:
+                last_error = error
                 logger.warning("Failed to query PCI device %s during removal: %s", pci_path, error)
             if attempt < self.vm_retry_count:
                 await asyncio.sleep(self.vm_retry_timeout)
-        raise RuntimeError(f"Timed out waiting for PCI device removal: {pci_path}")
+        raise RuntimeError(f"Timed out waiting for PCI device removal {pci_path}: {last_error}") from last_error
 
     async def _run_vfio_command(self, command: str, pci_path: str | None = None) -> str:
         args = [self.crosvm_bin, "vfio", command]
@@ -355,14 +405,24 @@ class CrosvmLink:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_bytes, stderr_bytes = await proc.communicate()
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.vfio_command_timeout
+                )
+            except TimeoutError as error:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError(f"Crosvm VFIO {command} timed out on {self.socket_path}") from error
         except OSError as error:
-            raise RuntimeError(f"Failed to execute Crosvm VFIO {command}: {error}") from None
+            raise RuntimeError(f"Failed to execute Crosvm VFIO {command}: {error}") from error
 
-        stdout = stdout_bytes.decode()
-        stderr = stderr_bytes.decode().strip()
+        stdout = stdout_bytes.decode(errors="replace")
+        stderr = stderr_bytes.decode(errors="replace").strip()
         if proc.returncode != 0:
-            raise RuntimeError(f"Crosvm VFIO {command} failed with code {proc.returncode}: {stderr}")
+            raise RuntimeError(
+                f"Crosvm VFIO {command} failed on {self.socket_path} with code {proc.returncode}: "
+                f"{stderr or stdout.strip()}"
+            )
         return stdout
 
     @staticmethod

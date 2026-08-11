@@ -122,7 +122,18 @@ async def vmm_is_pci_dev_connected(app_context: AppContext, vm: dict[str, str], 
     if vm_type == "crosvm":
         crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
         return await crosvm.is_pci_dev_connected(pci_info)
-    return False
+    raise RuntimeError(f"Unsupported vm type: {vm_type}")
+
+
+async def vmm_check_pci_hotplug(app_context: AppContext, vm: dict[str, str]) -> None:
+    """Check Crosvm's live VFIO interface before changing host ownership."""
+    if vm.get("type") != "crosvm":
+        return
+    vm_socket = vm.get("socket")
+    if not vm_socket:
+        raise RuntimeError("No socket path defined")
+    crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
+    await crosvm.ensure_pci_hotplug()
 
 
 async def vmm_wait_until_removed(app_context: AppContext, vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:

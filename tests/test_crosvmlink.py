@@ -9,12 +9,15 @@ from vhotplug.usb import USBInfo
 
 
 class FakeProcess:
-    def __init__(self, stdout: str, returncode: int = 0) -> None:
+    def __init__(self, stdout: str | bytes, returncode: int = 0, stderr: str | bytes = "") -> None:
         self.stdout = stdout
+        self.stderr = stderr
         self.returncode = returncode
 
     async def communicate(self) -> tuple[bytes, bytes]:
-        return self.stdout.encode(), b""
+        stdout = self.stdout.encode() if isinstance(self.stdout, str) else self.stdout
+        stderr = self.stderr.encode() if isinstance(self.stderr, str) else self.stderr
+        return stdout, stderr
 
 
 def fake_crosvm(
@@ -179,6 +182,33 @@ def test_pci_add_reconciles_against_crosvm_list(monkeypatch: pytest.MonkeyPatch)
     assert len([command for command in calls if command[1:3] == ("vfio", "add")]) == 1
 
 
+def test_pci_add_is_not_reissued_while_waiting_for_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    add_accepted = False
+    lists_after_add = 0
+    path = "/sys/bus/pci/devices/0000:00:1f.3"
+
+    async def execute(*args: str, **_kwargs: Any) -> FakeProcess:
+        nonlocal add_accepted, lists_after_add
+        calls.append(args)
+        if args[1:3] == ("vfio", "add"):
+            add_accepted = True
+            return FakeProcess("")
+        if args[1:3] == ("vfio", "list"):
+            if add_accepted:
+                lists_after_add += 1
+            return FakeProcess(f"devices {path}" if lists_after_add >= 2 else "devices")
+        raise AssertionError(f"Unexpected Crosvm command: {args}")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    crosvm = link(monkeypatch)
+    crosvm.vm_retry_timeout = 0
+
+    asyncio.run(crosvm.add_pci_device(pci()))
+
+    assert len([command for command in calls if command[1:3] == ("vfio", "add")]) == 1
+
+
 def test_pci_remove_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     calls, attached = fake_crosvm_vfio(monkeypatch)
     path = "/sys/bus/pci/devices/0000:00:1f.3"
@@ -189,6 +219,33 @@ def test_pci_remove_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(crosvm.remove_pci_device(pci()))
 
     assert not attached
+    assert len([command for command in calls if command[1:3] == ("vfio", "remove")]) == 1
+
+
+def test_pci_remove_is_not_reissued_while_waiting_for_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    remove_accepted = False
+    lists_after_remove = 0
+    path = "/sys/bus/pci/devices/0000:00:1f.3"
+
+    async def execute(*args: str, **_kwargs: Any) -> FakeProcess:
+        nonlocal remove_accepted, lists_after_remove
+        calls.append(args)
+        if args[1:3] == ("vfio", "remove"):
+            remove_accepted = True
+            return FakeProcess("")
+        if args[1:3] == ("vfio", "list"):
+            if remove_accepted:
+                lists_after_remove += 1
+            return FakeProcess("devices" if lists_after_remove >= 2 else f"devices {path}")
+        raise AssertionError(f"Unexpected Crosvm command: {args}")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    crosvm = link(monkeypatch)
+    crosvm.vm_retry_timeout = 0
+
+    asyncio.run(crosvm.remove_pci_device(pci()))
+
     assert len([command for command in calls if command[1:3] == ("vfio", "remove")]) == 1
 
 
@@ -246,3 +303,63 @@ def test_pci_list_rejects_failed_command(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
     with pytest.raises(RuntimeError, match="VFIO list failed"):
         asyncio.run(link(monkeypatch).pci_list())
+
+
+def test_pci_list_rejects_unexpected_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def execute(*_args: str, **_kwargs: Any) -> FakeProcess:
+        return FakeProcess("devices none attached")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    with pytest.raises(RuntimeError, match="Unexpected entries"):
+        asyncio.run(link(monkeypatch).pci_list())
+
+
+def test_vfio_failure_reports_stdout_and_replaces_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def execute(*_args: str, **_kwargs: Any) -> FakeProcess:
+        return FakeProcess(b"\xffdevice busy", returncode=1)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    with pytest.raises(RuntimeError, match=r"app-vm\.sock.*device busy"):
+        asyncio.run(link(monkeypatch).pci_list())
+
+
+def test_wait_until_pci_removed_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    _calls, attached = fake_crosvm_vfio(monkeypatch)
+    attached.add("/sys/bus/pci/devices/0000:00:1f.3")
+    crosvm = link(monkeypatch)
+    crosvm.vm_retry_count = 0
+
+    with pytest.raises(RuntimeError, match="Timed out waiting"):
+        asyncio.run(crosvm.wait_until_pci_removed(pci()))
+
+
+def test_vfio_command_timeout_terminates_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    class HangingProcess:
+        returncode = None
+
+        def __init__(self) -> None:
+            self.killed = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        def kill(self) -> None:
+            self.killed = True
+
+        async def wait(self) -> int:
+            return 1
+
+    process = HangingProcess()
+
+    async def execute(*_args: str, **_kwargs: Any) -> HangingProcess:
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", execute)
+    crosvm = link(monkeypatch)
+    crosvm.vfio_command_timeout = 0.01
+
+    with pytest.raises(RuntimeError, match="VFIO list timed out"):
+        asyncio.run(crosvm.pci_list())
+
+    assert process.killed

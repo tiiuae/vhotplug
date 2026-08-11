@@ -145,3 +145,16 @@ def test_crosvm_pci_queries_use_configured_binary(monkeypatch: pytest.MonkeyPatc
     asyncio.run(vmm_wait_until_removed(app_context, vm, pci_info))
 
     assert binaries == ["/nix/store/crosvm/bin/crosvm"] * 2
+
+
+def test_pci_query_rejects_unknown_vmm() -> None:
+    app_context = cast(AppContext, SimpleNamespace(config=SimpleNamespace(config={})))
+
+    with pytest.raises(RuntimeError, match="Unsupported vm type"):
+        asyncio.run(
+            vmm_is_pci_dev_connected(
+                app_context,
+                {"type": "typo", "socket": "/run/unknown.sock"},
+                PCIInfo(address="0000:00:14.3"),
+            )
+        )

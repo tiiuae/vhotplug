@@ -456,7 +456,13 @@ class APIServer:
         vm = msg.get("vm")
         logger.info("PCI suspend: %s", vm)
         asyncio.run_coroutine_threadsafe(
-            detach_connected_pci(self.app_context, [vm] if vm else None, suspend=True), self.loop
+            detach_connected_pci(
+                self.app_context,
+                [vm] if vm else None,
+                suspend=True,
+                fail_on_error=True,
+            ),
+            self.loop,
         ).result()
         return {"result": "ok"}
 

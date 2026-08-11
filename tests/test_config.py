@@ -14,6 +14,13 @@ def test_input() -> None:
     assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
 
 
+def test_pci_passthrough_rule_targets_vm() -> None:
+    config = Config("config.json")
+
+    assert config.has_pci_passthrough_for_vm("vm1")
+    assert not config.has_pci_passthrough_for_vm("vm2")
+
+
 def test_input_ignore_vid_pid() -> None:
     config = Config("config.json")
     res = config.vm_for_device(

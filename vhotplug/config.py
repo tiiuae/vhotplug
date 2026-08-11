@@ -504,6 +504,17 @@ class Config:
             logger.exception("Failed to find ACPI tables for %s", vm_name)
         return acpi_tables
 
+    def has_pci_passthrough_for_vm(self, vm_name: str) -> bool:
+        """Return whether an enabled PCI rule targets the VM."""
+        try:
+            return any(
+                not self._disabled(rule) and rule.get("targetVm") == vm_name
+                for rule in self.config.get("pciPassthrough", [])
+            )
+        except (AttributeError, TypeError):
+            logger.exception("Failed to inspect PCI passthrough rules for %s", vm_name)
+            return False
+
     def usb_authorization_enabled(self) -> bool:
         return bool(self._enabled(self.config.get("usbAuthorization", {}), False))
 

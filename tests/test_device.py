@@ -138,6 +138,32 @@ def test_crosvm_attach_passes_and_records_guest_port(monkeypatch: pytest.MonkeyP
     assert state.attached_port == 9
 
 
+def test_crosvm_pci_capability_is_checked_before_vfio_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = FakeState(current_vm=None)
+    vfio_setup = False
+
+    async def unsupported(*_args: Any) -> None:
+        raise RuntimeError("VFIO list is unavailable")
+
+    def setup(*_args: Any) -> None:
+        nonlocal vfio_setup
+        vfio_setup = True
+
+    monkeypatch.setattr(device_module, "vmm_check_pci_hotplug", unsupported)
+    monkeypatch.setattr(device_module, "setup_vfio", setup)
+
+    with pytest.raises(RuntimeError, match="VFIO list is unavailable"):
+        asyncio.run(
+            _attach_device_to_vm(
+                app_context(state),
+                PCIInfo(address="0000:00:14.3"),
+                {"name": "net-vm", "type": "crosvm", "socket": "/run/net-vm.sock"},
+            )
+        )
+
+    assert not vfio_setup
+
+
 def pci_attach_context() -> tuple[AppContext, dict[str, Any]]:
     passthrough_info = SimpleNamespace(target_vm="net-vm", order=0)
     pci_info = PCIInfo(address="0000:00:14.3")
@@ -174,3 +200,50 @@ def test_background_reconciliation_logs_attach_failure(monkeypatch: pytest.Monke
     monkeypatch.setattr(device_module, "attach_device", fail_attach)
 
     asyncio.run(device_module.attach_connected_pci(app_context))
+
+
+def test_crosvm_args_isolate_hotplug_without_detected_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = SimpleNamespace(
+        get_vm=lambda _name: {"name": "net-vm", "type": "crosvm"},
+        has_pci_passthrough_for_vm=lambda _name: True,
+        get_acpi_tables=lambda _name: [],
+    )
+    app_context = cast(AppContext, SimpleNamespace(config=config))
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [])
+    monkeypatch.setattr(device_module, "_get_evdev_devices", lambda *_args: [])
+
+    assert device_module.get_vmm_args(app_context, "net-vm", None) == ["--vfio-isolate-hotplug"]
+
+
+def test_attach_by_tag_propagates_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    received_fail_on_error = False
+
+    async def attach(*_args: Any, **kwargs: Any) -> None:
+        nonlocal received_fail_on_error
+        received_fail_on_error = kwargs["fail_on_error"]
+
+    monkeypatch.setattr(device_module, "attach_connected_pci", attach)
+
+    asyncio.run(device_module.attach_existing_pci_devices_by_tag(cast(AppContext, object()), "audio"))
+
+    assert received_fail_on_error
+
+
+def test_explicit_pci_detach_propagates_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    pci_info = PCIInfo(address="0000:00:14.3")
+    state = SimpleNamespace(
+        list_pci_devices=lambda: [pci_info.address],
+        get_vm_for_device=lambda _pci_info: "net-vm",
+    )
+    passthrough_info = SimpleNamespace(skip_on_suspend=False, tag=None)
+    config = SimpleNamespace(vm_for_device=lambda _pci_info: passthrough_info)
+    app_context = cast(AppContext, SimpleNamespace(dev_state=state, config=config))
+    monkeypatch.setattr(device_module, "pci_info_by_address", lambda *_args: pci_info)
+
+    async def fail_remove(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("Crosvm VFIO remove failed")
+
+    monkeypatch.setattr(device_module, "_remove_existing_device", fail_remove)
+
+    with pytest.raises(RuntimeError, match="Crosvm VFIO remove failed"):
+        asyncio.run(device_module.detach_connected_pci(app_context, fail_on_error=True))
