@@ -160,13 +160,20 @@ class APIClient:
     def pci_resume(self, vm: str) -> dict[str, Any]:
         return self.send({"action": "pci_resume", "vm": vm})
 
-    def vmm_args(self, vm: str, qemu_bus_prefix: str | None, qemu_bus_start_index: int | None) -> dict[str, Any]:
+    def vmm_args(
+        self,
+        vm: str,
+        qemu_bus_prefix: str | None,
+        qemu_bus_start_index: int | None,
+        require_pci: bool = False,
+    ) -> dict[str, Any]:
         return self.send(
             {
                 "action": "vmm_args",
                 "vm": vm,
                 "qemu_bus_prefix": qemu_bus_prefix,
                 "qemu_bus_start_index": qemu_bus_start_index,
+                "require_pci": require_pci,
             }
         )
 

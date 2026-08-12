@@ -215,6 +215,34 @@ def test_crosvm_args_isolate_hotplug_without_detected_devices(monkeypatch: pytes
     assert device_module.get_vmm_args(app_context, "net-vm", None) == ["--vfio-isolate-hotplug"]
 
 
+def test_required_pci_args_fail_without_detected_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = SimpleNamespace(
+        get_vm=lambda _name: {"name": "net-vm", "type": "crosvm"},
+        has_pci_passthrough_for_vm=lambda _name: True,
+        get_acpi_tables=lambda _name: [],
+    )
+    app_context = cast(AppContext, SimpleNamespace(config=config))
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [])
+    monkeypatch.setattr(device_module, "_get_evdev_devices", lambda *_args: [])
+
+    with pytest.raises(RuntimeError, match=r"configured.*no matching devices"):
+        device_module.get_vmm_args(app_context, "net-vm", None, require_pci=True)
+
+
+def test_required_pci_args_fail_without_configured_rules(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = SimpleNamespace(
+        get_vm=lambda _name: {"name": "net-vm", "type": "crosvm"},
+        has_pci_passthrough_for_vm=lambda _name: False,
+        get_acpi_tables=lambda _name: [],
+    )
+    app_context = cast(AppContext, SimpleNamespace(config=config))
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [])
+    monkeypatch.setattr(device_module, "_get_evdev_devices", lambda *_args: [])
+
+    with pytest.raises(RuntimeError, match="No PCI passthrough rules"):
+        device_module.get_vmm_args(app_context, "net-vm", None, require_pci=True)
+
+
 def test_crosvm_args_can_place_pci_device_on_root_bus(monkeypatch: pytest.MonkeyPatch) -> None:
     config = SimpleNamespace(
         get_vm=lambda _name: {"name": "gui-vm", "type": "crosvm"},

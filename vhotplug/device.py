@@ -987,7 +987,11 @@ async def attach_connected_evdev(app_context: AppContext) -> None:
 
 
 def get_vmm_args(
-    app_context: AppContext, vm_name: str, qemu_bus_prefix: str | None, qemu_bus_start_index: int = 0
+    app_context: AppContext,
+    vm_name: str,
+    qemu_bus_prefix: str | None,
+    qemu_bus_start_index: int = 0,
+    require_pci: bool = False,
 ) -> list[str]:
     """Returns a list of VMM arguments for all devices that match the rules from the config."""
     # Get VM details from the config
@@ -999,11 +1003,13 @@ def get_vmm_args(
     args: list[str] = []
     needs_ovmf = False
     dev_number = qemu_bus_start_index
+    pci_device_count = 0
     for dev in _get_pci_devices(app_context, None, True):
         # Filter by target VM
         passthrough_info = dev["passthrough_info"]
         if passthrough_info.target_vm != vm_name:
             continue
+        pci_device_count += 1
 
         pci_info = dev["pci_info"]
         if passthrough_info.auto_ovmf and pci_is_nvidia_gpu(pci_info):
@@ -1023,6 +1029,12 @@ def get_vmm_args(
         )
         dev_number = dev_number + 1
         args.extend(dev_args)
+
+    if require_pci:
+        if not app_context.config.has_pci_passthrough_for_vm(vm_name):
+            raise RuntimeError(f"No PCI passthrough rules are configured for VM {vm_name}")
+        if pci_device_count == 0:
+            raise RuntimeError(f"PCI passthrough is configured for VM {vm_name}, but no matching devices are present")
 
     if needs_ovmf:
         args = vmm_args_ovmf(vm, app_context.config.get_ovmf_code(), app_context.config.get_ovmf_vars()) + args

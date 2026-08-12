@@ -485,5 +485,6 @@ class APIServer:
             raise RuntimeError("VM name is required")
         qemu_bus_prefix = msg.get("qemu_bus_prefix")
         qemu_bus_start_index = int(msg.get("qemu_bus_start_index", 0))
-        args = get_vmm_args(self.app_context, vm, qemu_bus_prefix, qemu_bus_start_index)
+        require_pci = bool(msg.get("require_pci", False))
+        args = get_vmm_args(self.app_context, vm, qemu_bus_prefix, qemu_bus_start_index, require_pci)
         return {"result": "ok", "vmm_args": args}
