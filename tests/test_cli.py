@@ -45,3 +45,10 @@ def test_vmm_args_connection_timeout() -> None:
 
     with pytest.raises(RuntimeError, match="Timed out waiting for vhotplug"):
         vmm_args(cast(APIClient, client), "net-vm", None, 1, timeout=0, require_pci=True)
+
+
+def test_vmm_args_rejects_whitespace() -> None:
+    client = FakeClient({"result": "ok", "vmm_args": ["--vfio", "/sys/device with-space"]})
+
+    with pytest.raises(RuntimeError, match="arguments containing whitespace"):
+        vmm_args(cast(APIClient, client), "net-vm", None, 1, timeout=0, require_pci=True)

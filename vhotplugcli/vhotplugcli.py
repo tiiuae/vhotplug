@@ -208,6 +208,8 @@ def vmm_args(
         if res.get("result") == "failed":
             raise RuntimeError(f"Failed to get VMM args for PCI devices: {res.get('error')}")
         args = res.get("vmm_args", [])
+        if any(any(char.isspace() for char in arg) for arg in args):
+            raise RuntimeError("VMM arguments containing whitespace are not supported")
         cmdline = " ".join(args)
         logger.info("Resolved %d VMM argument(s) for %s: %s", len(args), vm, cmdline or "<none>")
         print(cmdline, end="")
