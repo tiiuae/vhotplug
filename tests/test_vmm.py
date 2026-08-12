@@ -116,6 +116,13 @@ def test_vmm_args_pci_crosvm_is_removable() -> None:
     ]
 
 
+def test_vmm_args_pci_crosvm_can_use_root_bus() -> None:
+    assert vmm_args_pci({"type": "crosvm"}, PCIInfo(address="0000:00:02.0"), 0, None, False, True) == [
+        "--vfio",
+        "/sys/bus/pci/devices/0000:00:02.0,iommu=viommu",
+    ]
+
+
 def test_vmm_args_acpi_table_crosvm() -> None:
     assert vmm_args_acpi_table({"type": "crosvm"}, "/run/nhlt.aml") == ["--acpi-table", "/run/nhlt.aml"]
 

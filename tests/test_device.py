@@ -215,6 +215,34 @@ def test_crosvm_args_isolate_hotplug_without_detected_devices(monkeypatch: pytes
     assert device_module.get_vmm_args(app_context, "net-vm", None) == ["--vfio-isolate-hotplug"]
 
 
+def test_crosvm_args_can_place_pci_device_on_root_bus(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = SimpleNamespace(
+        get_vm=lambda _name: {"name": "gui-vm", "type": "crosvm"},
+        has_pci_passthrough_for_vm=lambda _name: True,
+        get_acpi_tables=lambda _name: [],
+    )
+    passthrough_info = SimpleNamespace(
+        target_vm="gui-vm",
+        auto_ovmf=False,
+        qemu_use_root_bus=False,
+        crosvm_use_root_bus=True,
+    )
+    device = {
+        "pci_info": PCIInfo(address="0000:00:02.0"),
+        "passthrough_info": passthrough_info,
+    }
+    app_context = cast(AppContext, SimpleNamespace(config=config))
+    monkeypatch.setattr(device_module, "_get_pci_devices", lambda *_args: [device])
+    monkeypatch.setattr(device_module, "_get_evdev_devices", lambda *_args: [])
+    monkeypatch.setattr(device_module, "setup_vfio", lambda *_args: None)
+
+    assert device_module.get_vmm_args(app_context, "gui-vm", None) == [
+        "--vfio-isolate-hotplug",
+        "--vfio",
+        "/sys/bus/pci/devices/0000:00:02.0,iommu=viommu",
+    ]
+
+
 def test_attach_by_tag_propagates_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     received_fail_on_error = False
 

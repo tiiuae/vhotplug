@@ -155,7 +155,12 @@ async def vmm_wait_until_removed(app_context: AppContext, vm: dict[str, Any], de
 
 
 def vmm_args_pci(
-    vm: dict[str, str], dev: PCIInfo, n: int, qemu_bus_prefix: str | None, qemu_use_root_bus: bool = False
+    vm: dict[str, str],
+    dev: PCIInfo,
+    n: int,
+    qemu_bus_prefix: str | None,
+    qemu_use_root_bus: bool = False,
+    crosvm_use_root_bus: bool = False,
 ) -> list[str]:
     vm_type = vm.get("type")
     sys_name = dev.address
@@ -164,7 +169,8 @@ def vmm_args_pci(
         bus = f",bus={qemu_bus_prefix}{n}" if qemu_bus_prefix and not qemu_use_root_bus else ""
         return ["-device", f"vfio-pci,host={sys_name},multifunction=on,id={qemuid}{bus}"]
     if vm_type == "crosvm":
-        return ["--vfio", f"/sys/bus/pci/devices/{sys_name},iommu=viommu,removable=true"]
+        removable = "" if crosvm_use_root_bus else ",removable=true"
+        return ["--vfio", f"/sys/bus/pci/devices/{sys_name},iommu=viommu{removable}"]
     if vm_type == "cloud-hypervisor":
         return ["--device", f"path=/sys/bus/pci/devices/{sys_name}"]
     raise RuntimeError(f"Unsupported vm type: {vm_type}")

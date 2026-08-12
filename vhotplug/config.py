@@ -22,6 +22,7 @@ class PassthroughInfo:
     qemu_use_root_bus: bool = False
     order: int = 0
     tag: str | None = None
+    crosvm_use_root_bus: bool = False
 
 
 @dataclass
@@ -368,6 +369,7 @@ class Config:
                     pci_iommu_skip_if_shared = rule.get("pciIommuSkipIfShared", False)
                     auto_ovmf = rule.get("autoOvmf", False)
                     qemu_use_root_bus = rule.get("qemuUseRootBus", False)
+                    crosvm_use_root_bus = rule.get("crosvmUseRootBus", False)
                     tag = rule.get("tag")
                     return PassthroughInfo(
                         target_vm,
@@ -379,6 +381,7 @@ class Config:
                         qemu_use_root_bus,
                         order,
                         tag,
+                        crosvm_use_root_bus,
                     )
 
         except (AttributeError, TypeError):
