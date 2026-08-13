@@ -120,7 +120,18 @@ class USBInfo(NamedTuple):
         return False
 
     def _modalias(self, iface_class: int, iface_subclass: int, iface_protocol: int, iface_number: int) -> str | None:
-        if self.vid and self.pid:
+        # bcd_device/device_class/device_subclass/device_protocol come from udev
+        # attributes that can be transiently absent (e.g. a device still settling
+        # after a host resume), so all four must be checked -- not just vid/pid --
+        # or formatting a None with :02X/:04X raises TypeError and crashes vhotplug.
+        if (
+            self.vid
+            and self.pid
+            and self.bcd_device is not None
+            and self.device_class is not None
+            and self.device_subclass is not None
+            and self.device_protocol is not None
+        ):
             return (
                 f"usb:v{self.vid.upper()}p{self.pid.upper()}"
                 f"d{self.bcd_device:04X}"
