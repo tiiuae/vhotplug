@@ -23,6 +23,7 @@ class QEMULink:
     vm_retry_timeout = 1
     vm_wait_after_boot = 0
     vm_boot_timeout = 1
+    vm_boot_retry_count = 15
     dev_remove_timeout = 5
 
     def __init__(self, socket_path: str) -> None:
@@ -44,6 +45,20 @@ class QEMULink:
     def _wait_for_boot(self) -> bool:
         """Waits for a qemu vm to boot."""
         return wait_for_unix_socket(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot, socket.SOCK_STREAM)
+
+    async def _wait_for_boot_to_attach(self) -> bool:
+        """Waits for a qemu vm to boot, across the whole boot window."""
+        for attempt in range(1, self.vm_boot_retry_count + 1):
+            if await asyncio.to_thread(self._wait_for_boot):
+                return True
+            if attempt < self.vm_boot_retry_count:
+                logger.info(
+                    "VM %s is not booted yet, retrying in %s seconds...",
+                    self.socket_path,
+                    self.vm_retry_timeout,
+                )
+                await asyncio.sleep(self.vm_retry_timeout)
+        return False
 
     def _qemu_id_usb(self, usb_info: USBInfo) -> str:
         return f"usb{usb_info.busnum}{usb_info.devnum}"
@@ -214,7 +229,7 @@ class QEMULink:
 
     async def add_usb_device(self, usb_info: USBInfo) -> None:
         async with self._lock:
-            if not self._wait_for_boot():
+            if not await self._wait_for_boot_to_attach():
                 logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
                 return
 
@@ -247,7 +262,7 @@ class QEMULink:
 
     async def add_usb_device_by_vid_pid(self, usb_info: USBInfo) -> None:
         async with self._lock:
-            if not self._wait_for_boot():
+            if not await self._wait_for_boot_to_attach():
                 logger.warning("VM is not booted while adding device %s", usb_info.friendly_name())
                 return
 
@@ -321,7 +336,7 @@ class QEMULink:
 
     async def add_evdev_device(self, evdev_info: EvdevInfo) -> None:
         async with self._lock:
-            if not self._wait_for_boot():
+            if not await self._wait_for_boot_to_attach():
                 logger.warning("VM is not booted while adding device %s", evdev_info.friendly_name())
                 return
 
@@ -358,7 +373,7 @@ class QEMULink:
 
     async def add_pci_device(self, pci_info: PCIInfo) -> None:
         async with self._lock:
-            if not self._wait_for_boot():
+            if not await self._wait_for_boot_to_attach():
                 logger.warning("VM is not booted while adding device %s", pci_info.friendly_name())
                 return
 
