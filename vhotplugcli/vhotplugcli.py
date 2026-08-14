@@ -181,20 +181,37 @@ def pci_resume(client: APIClient, vm: str) -> None:
     logger.info("Successfully resumed")
 
 
-def vmm_args(client: APIClient, vm: str, qemu_bus_prefix: str | None, qemu_bus_start_index: int | None) -> None:
+def vmm_args(
+    client: APIClient,
+    vm: str,
+    qemu_bus_prefix: str | None,
+    qemu_bus_start_index: int | None,
+    timeout: float,
+    require_pci: bool,
+) -> None:
+    if timeout < 0:
+        raise ValueError("VMM argument timeout must not be negative")
+
+    deadline = time.monotonic() + timeout
     while True:
         try:
             client.connect()
-            res = client.vmm_args(vm, qemu_bus_prefix, qemu_bus_start_index)
+            res = client.vmm_args(vm, qemu_bus_prefix, qemu_bus_start_index, require_pci)
         except RuntimeError as e:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"Timed out waiting for vhotplug while resolving VMM args for {vm}: {e}") from e
             logger.warning(str(e))
-            time.sleep(1)
+            time.sleep(min(1, remaining))
             continue
 
         if res.get("result") == "failed":
             raise RuntimeError(f"Failed to get VMM args for PCI devices: {res.get('error')}")
         args = res.get("vmm_args", [])
+        if any(any(char.isspace() for char in arg) for arg in args):
+            raise RuntimeError("VMM arguments containing whitespace are not supported")
         cmdline = " ".join(args)
+        logger.info("Resolved %d VMM argument(s) for %s: %s", len(args), vm, cmdline or "<none>")
         print(cmdline, end="")
         break
 
@@ -335,7 +352,27 @@ def main() -> int:
     vmm_args_parser.add_argument("--vm", help="Virtual machine name")
     vmm_args_parser.add_argument("--qemu-bus-prefix", help="QEMU Bus Prefix")
     vmm_args_parser.add_argument("--qemu-bus-start-index", type=int, help="QEMU Bus Start Index")
-    vmm_args_parser.set_defaults(func=lambda a, c: vmm_args(c, a.vm, a.qemu_bus_prefix, a.qemu_bus_start_index))
+    vmm_args_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30,
+        help="Maximum seconds to wait for the vhotplug daemon (default: 30)",
+    )
+    vmm_args_parser.add_argument(
+        "--require-pci",
+        action="store_true",
+        help="Fail unless at least one configured PCI device is present",
+    )
+    vmm_args_parser.set_defaults(
+        func=lambda a, c: vmm_args(
+            c,
+            a.vm,
+            a.qemu_bus_prefix,
+            a.qemu_bus_start_index,
+            a.timeout,
+            a.require_pci,
+        )
+    )
 
     args = parser.parse_args()
 

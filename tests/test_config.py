@@ -14,6 +14,13 @@ def test_input() -> None:
     assert res is not None and res.target_vm == "vm1" and res.allowed_vms is None
 
 
+def test_pci_passthrough_rule_targets_vm() -> None:
+    config = Config("config.json")
+
+    assert config.has_pci_passthrough_for_vm("vm1")
+    assert not config.has_pci_passthrough_for_vm("vm2")
+
+
 def test_input_ignore_vid_pid() -> None:
     config = Config("config.json")
     res = config.vm_for_device(
@@ -263,6 +270,28 @@ def test_pci_rule_qemu_use_root_bus(tmp_path: Path) -> None:
     config = Config(str(config_path))
     res = config.vm_for_device(PCIInfo(address="0000:01:00.0", vendor_id=0x10DE, device_id=0x2206))
     assert res is not None and res.qemu_use_root_bus
+
+
+def test_pci_rule_crosvm_use_root_bus(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "pciPassthrough": [
+                    {
+                        "description": "Integrated GPU for VM1",
+                        "targetVm": "vm1",
+                        "crosvmUseRootBus": True,
+                        "allow": [{"vendorId": "8086", "deviceId": "7d45"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config(str(config_path))
+    res = config.vm_for_device(PCIInfo(address="0000:00:02.0", vendor_id=0x8086, device_id=0x7D45))
+    assert res is not None and res.crosvm_use_root_bus
 
 
 def test_usb_authorization(tmp_path: Path) -> None:

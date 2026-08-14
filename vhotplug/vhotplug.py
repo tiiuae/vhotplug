@@ -121,22 +121,31 @@ async def monitor_loop(app_context: AppContext, file_watcher: FileWatcher, attac
         # Detect if any VMs restarted
         vm_restart_detected, sockets_restarted = file_watcher.detect_restart()
         if vm_restart_detected and attach_connected:
-            vms_restarted: list[str] = []
-            for sock in sockets_restarted:
-                vm = app_context.config.get_vm_by_socket(sock)
-                if vm:
-                    vm_name = vm.get("name")
-                    if vm_name:
-                        vms_restarted.append(vm_name)
+            await reattach_devices_for_restarted_vms(app_context, sockets_restarted)
 
-            # Check non-USB evdev devices for restarted VMs
-            await attach_connected_evdev(app_context)
-            # Check PCI devices for restarted VMs
-            await attach_connected_pci(app_context, vms_restarted)
-            # Check PCI devices for restarted VMs and detach those that were previously permanently detached
-            await detach_disconnected_pci(app_context, vms_restarted)
-            # Check USB devices for restarted VMs
-            await attach_connected_usb(app_context, vms_restarted)
+
+async def reattach_devices_for_restarted_vms(app_context: AppContext, sockets_restarted: list[str]) -> None:
+    vms_restarted: list[str] = []
+    for sock in sockets_restarted:
+        vm = app_context.config.get_vm_by_socket(sock)
+        if vm:
+            vm_name = vm.get("name")
+            if vm_name:
+                vms_restarted.append(vm_name)
+
+    # Keep USB port bindings until DeviceState observes a different socket
+    # generation. A socket creation event can already be queued while the
+    # initial device scan waits for the VM to boot; clearing the binding here
+    # would then attach the same physical USB device a second time.
+
+    # Check non-USB evdev devices for restarted VMs
+    await attach_connected_evdev(app_context)
+    # Check PCI devices for restarted VMs
+    await attach_connected_pci(app_context, vms_restarted)
+    # Check PCI devices for restarted VMs and detach those that were previously permanently detached
+    await detach_disconnected_pci(app_context, vms_restarted)
+    # Check USB devices for restarted VMs
+    await attach_connected_usb(app_context, vms_restarted)
 
 
 async def async_main() -> None:

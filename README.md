@@ -1,5 +1,13 @@
 # vhotplug
 
+## Crosvm PCI Requirements
+
+Crosvm PCI passthrough requires a build that accepts `removable=true` in
+`--vfio` options and implements `crosvm vfio list SOCKET`. The list command
+must report the host sysfs paths of both cold- and runtime-attached VFIO
+devices. Vhotplug probes the live list interface before changing host driver
+ownership.
+
 This application runs as a service on the host, monitors device add/remove events using libudev and dynamically attaches devices to virtual machines based on rules defined in a configuration file.
 
 # Features

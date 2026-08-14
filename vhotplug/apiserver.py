@@ -456,7 +456,13 @@ class APIServer:
         vm = msg.get("vm")
         logger.info("PCI suspend: %s", vm)
         asyncio.run_coroutine_threadsafe(
-            detach_connected_pci(self.app_context, [vm] if vm else None, suspend=True), self.loop
+            detach_connected_pci(
+                self.app_context,
+                [vm] if vm else None,
+                suspend=True,
+                fail_on_error=True,
+            ),
+            self.loop,
         ).result()
         return {"result": "ok"}
 
@@ -464,7 +470,12 @@ class APIServer:
         vm = msg.get("vm")
         logger.info("PCI resume: %s", vm)
         asyncio.run_coroutine_threadsafe(
-            attach_connected_pci(self.app_context, [vm] if vm else None), self.loop
+            attach_connected_pci(
+                self.app_context,
+                [vm] if vm else None,
+                fail_on_error=True,
+            ),
+            self.loop,
         ).result()
         return {"result": "ok"}
 
@@ -474,5 +485,6 @@ class APIServer:
             raise RuntimeError("VM name is required")
         qemu_bus_prefix = msg.get("qemu_bus_prefix")
         qemu_bus_start_index = int(msg.get("qemu_bus_start_index", 0))
-        args = get_vmm_args(self.app_context, vm, qemu_bus_prefix, qemu_bus_start_index)
+        require_pci = bool(msg.get("require_pci", False))
+        args = get_vmm_args(self.app_context, vm, qemu_bus_prefix, qemu_bus_start_index, require_pci)
         return {"result": "ok", "vmm_args": args}
