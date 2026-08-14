@@ -22,7 +22,9 @@ python3Packages.buildPythonApplication {
     qemu-qmp
   ];
 
-  doCheck = false;
+  nativeCheckInputs = with python3Packages; [
+    pytestCheckHook
+  ];
 
   meta = with lib; {
     description = "Hot-plugging USB and PCI devices to virtual machines";

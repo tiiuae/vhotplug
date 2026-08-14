@@ -17,7 +17,12 @@ def _get_crosvm_bin(app_context: AppContext) -> str | None:
     return crosvm_bin if isinstance(crosvm_bin, str) else None
 
 
-async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: USBInfo | PCIInfo | EvdevInfo) -> None:
+async def vmm_add_device(
+    app_context: AppContext,
+    vm: dict[str, str],
+    dev_info: USBInfo | PCIInfo | EvdevInfo,
+    crosvm_usb_port: int | None = None,
+) -> int | None:
     """Attaches a device to the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -33,19 +38,25 @@ async def vmm_add_device(app_context: AppContext, vm: dict[str, str], dev_info: 
             await qemu.add_pci_device(dev_info)
         else:
             await qemu.add_evdev_device(dev_info)
-    elif vm_type == "crosvm":
+        return None
+    if vm_type == "crosvm":
         crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
         if isinstance(dev_info, USBInfo):
-            await crosvm.add_usb_device(dev_info)
-        elif isinstance(dev_info, PCIInfo):
+            return await crosvm.add_usb_device(dev_info, crosvm_usb_port)
+        if isinstance(dev_info, PCIInfo):
             await crosvm.add_pci_device(dev_info)
         else:
             raise RuntimeError(f"Evdev passthrough is not supported by {vm_type}")
-    else:
-        raise RuntimeError(f"Unknown VM type: {vm_type}")
+        return None
+    raise RuntimeError(f"Unknown VM type: {vm_type}")
 
 
-async def vmm_remove_device(app_context: AppContext, vm: dict[str, Any], dev_info: USBInfo | PCIInfo) -> None:
+async def vmm_remove_device(
+    app_context: AppContext,
+    vm: dict[str, Any],
+    dev_info: USBInfo | PCIInfo,
+    crosvm_usb_port: int | None = None,
+) -> None:
     """Removes a device from the VM based on the VMM type and device type."""
     vm_type = vm.get("type")
     vm_socket = vm.get("socket")
@@ -68,7 +79,7 @@ async def vmm_remove_device(app_context: AppContext, vm: dict[str, Any], dev_inf
         # Crosvm seems to automatically remove the device from the list so this code is not really used
         crosvm = CrosvmLink(vm_socket, _get_crosvm_bin(app_context))
         if isinstance(dev_info, USBInfo):
-            await crosvm.remove_usb_device(dev_info)
+            await crosvm.remove_usb_device(dev_info, crosvm_usb_port)
         else:
             await crosvm.remove_pci_device(dev_info)
     else:

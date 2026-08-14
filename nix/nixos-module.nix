@@ -94,6 +94,9 @@ in
         );
         Restart = "on-failure";
         RestartSec = "5s";
+        StateDirectory = "vhotplug";
+        StateDirectoryMode = "0700";
+        UMask = "0077";
       };
     };
   };
