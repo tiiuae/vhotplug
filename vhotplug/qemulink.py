@@ -22,7 +22,8 @@ class QEMULink:
     vm_retry_count = 5
     vm_retry_timeout = 1
     vm_wait_after_boot = 0
-    vm_boot_timeout = 1
+    vm_boot_timeout = 3
+    vm_boot_poll_interval = 0.1
     dev_remove_timeout = 5
 
     def __init__(self, socket_path: str) -> None:
@@ -43,7 +44,13 @@ class QEMULink:
 
     def _wait_for_boot(self) -> bool:
         """Waits for a qemu vm to boot."""
-        return wait_for_unix_socket(self.socket_path, self.vm_boot_timeout, self.vm_wait_after_boot, socket.SOCK_STREAM)
+        return wait_for_unix_socket(
+            self.socket_path,
+            self.vm_boot_timeout,
+            self.vm_wait_after_boot,
+            socket.SOCK_STREAM,
+            poll_interval=self.vm_boot_poll_interval,
+        )
 
     def _qemu_id_usb(self, usb_info: USBInfo) -> str:
         return f"usb{usb_info.busnum}{usb_info.devnum}"
