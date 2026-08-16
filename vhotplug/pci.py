@@ -141,6 +141,30 @@ def _unbind_driver(pci_address: str) -> None:
         logger.debug("Device %s has no driver assigned", pci_address)
 
 
+def _wait_for_vfio_device_node(pci_address: str) -> None:
+    """Waits for the vfio group device node to appear after binding.
+
+    Writing to drivers_probe schedules the driver's probe callback but does not
+    guarantee it has completed, so /dev/vfio/<group> may not exist yet when this
+    returns. Callers (VM start/hotplug) that open the node immediately afterwards
+    can otherwise race a still-running vfio-pci probe.
+    """
+    iommu_group = Path(f"/sys/bus/pci/devices/{pci_address}/iommu_group")
+    if not iommu_group.exists():
+        logger.warning("IOMMU group does not exist for %s", pci_address)
+        return
+
+    group_number = iommu_group.resolve().name
+    vfio_device = Path(f"/dev/vfio/{group_number}")
+    for _ in range(1, 5):
+        if vfio_device.exists():
+            logger.debug("VFIO device node %s is ready", vfio_device)
+            return
+        logger.warning("VFIO device node %s does not exist yet", vfio_device)
+        time.sleep(0.1)
+    logger.error("VFIO device node %s did not appear for %s", vfio_device, pci_address)
+
+
 def _bind_vfio_pci(pci_address: str) -> None:
     """Checks the driver assigned for the device and changes it to vfio-pci."""
     device_path = f"/sys/bus/pci/devices/{pci_address}"
@@ -161,6 +185,8 @@ def _bind_vfio_pci(pci_address: str) -> None:
 
     with open("/sys/bus/pci/drivers_probe", "w", encoding="utf-8") as f:
         f.write(pci_address)
+
+    _wait_for_vfio_device_node(pci_address)
 
     logger.debug("Successfully bound vfio-pci driver for %s", pci_address)
 
